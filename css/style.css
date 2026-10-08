@@ -1,0 +1,151 @@
+:root {
+  --ink: #120d0a;
+  --paper: #f7f1e8;
+  --vermillion: #c23a2b;
+  --gold: #d4a017;
+  --jade: #2f6f5e;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(196, 58, 43, 0.55) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #c23a2b, #8a241c);
+  border-radius: 999px;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(212, 160, 23, 0.16), transparent 50%),
+    radial-gradient(900px 500px at 110% 0%, rgba(194, 58, 43, 0.18), transparent 45%),
+    linear-gradient(180deg, #16110e 0%, #0c0908 100%);
+  color: var(--paper);
+}
+
+.hanzi {
+  font-family: "Noto Sans SC", "Songti SC", serif;
+}
+
+.glass {
+  background: rgba(255, 248, 240, 0.06);
+  border: 1px solid rgba(255, 248, 240, 0.1);
+  backdrop-filter: blur(16px);
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 248, 240, 0.1);
+  overflow: hidden;
+}
+
+.progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #c23a2b, #d4a017);
+  transition: width 0.45s ease;
+}
+
+.scene {
+  animation: rise 0.45s ease both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.flip-scene {
+  perspective: 1400px;
+}
+
+.flip-card {
+  position: relative;
+  width: 100%;
+  min-height: 320px;
+  transform-style: preserve-3d;
+  transition: transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+  cursor: pointer;
+}
+
+.flip-card.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.flip-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  border-radius: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.flip-front {
+  background: linear-gradient(160deg, rgba(255, 248, 240, 0.12), rgba(194, 58, 43, 0.14));
+  border: 1px solid rgba(255, 248, 240, 0.16);
+}
+
+.flip-back {
+  transform: rotateY(180deg);
+  background: linear-gradient(160deg, rgba(47, 111, 94, 0.22), rgba(18, 13, 10, 0.7));
+  border: 1px solid rgba(212, 160, 23, 0.28);
+}
+
+.choice-btn {
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.choice-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.choice-btn.is-correct {
+  border-color: #3d9b7a !important;
+  background: rgba(47, 111, 94, 0.35) !important;
+}
+
+.choice-btn.is-wrong {
+  border-color: #c23a2b !important;
+  background: rgba(194, 58, 43, 0.28) !important;
+}
+
+.seal {
+  width: 42px;
+  height: 42px;
+  border: 2px solid rgba(194, 58, 43, 0.85);
+  color: #ef6a5a;
+  display: grid;
+  place-items: center;
+  font-family: "Noto Sans SC", serif;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.locked-card {
+  opacity: 0.55;
+  filter: grayscale(0.25);
+}

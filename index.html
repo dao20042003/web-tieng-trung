@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HSK Lexis · Học từ vựng HSK 3.0</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "Noto Sans SC", "system-ui", "sans-serif"],
+              sc: ["Noto Sans SC", "serif"],
+            },
+            colors: {
+              ink: "#120d0a",
+              paper: "#f7f1e8",
+              vermillion: "#c23a2b",
+              gold: "#d4a017",
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body class="antialiased">
+    <div class="min-h-screen flex flex-col lg:flex-row">
+      <aside class="lg:w-72 glass lg:min-h-screen p-5 lg:p-6 flex flex-col gap-6">
+        <div class="flex items-center gap-3">
+          <div class="seal hanzi text-lg">汉</div>
+          <div>
+            <p class="text-xs tracking-[0.25em] uppercase text-gold/80">HSK 3.0</p>
+            <h1 class="text-lg font-semibold">HSK Lexis</h1>
+          </div>
+        </div>
+
+        <div>
+          <p class="text-xs text-paper/50 mb-2">Cấp độ</p>
+          <div id="level-list" class="space-y-2"></div>
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs text-paper/60 mb-2">
+            <span>Tiến độ cấp này</span>
+            <span id="level-progress-label">0/318</span>
+          </div>
+          <div class="progress-bar"><span id="level-progress-bar" style="width: 0%"></span></div>
+        </div>
+
+        <nav class="grid grid-cols-3 lg:grid-cols-1 gap-2">
+          <button data-view="home" class="nav-btn glass rounded-xl px-3 py-2.5 text-sm flex items-center justify-center lg:justify-start gap-2">
+            <i data-lucide="layout-grid" class="w-4 h-4"></i> Chủ đề
+          </button>
+          <button data-view="study" class="nav-btn glass rounded-xl px-3 py-2.5 text-sm flex items-center justify-center lg:justify-start gap-2">
+            <i data-lucide="book-open" class="w-4 h-4"></i> Học
+          </button>
+          <button data-view="flash" class="nav-btn glass rounded-xl px-3 py-2.5 text-sm flex items-center justify-center lg:justify-start gap-2">
+            <i data-lucide="layers" class="w-4 h-4"></i> Flashcard
+          </button>
+          <button data-view="quiz" class="nav-btn glass rounded-xl px-3 py-2.5 text-sm flex items-center justify-center lg:justify-start gap-2 col-span-3 lg:col-span-1">
+            <i data-lucide="list-checks" class="w-4 h-4"></i> Trắc nghiệm
+          </button>
+        </nav>
+
+        <p class="hidden lg:block mt-auto text-[11px] leading-relaxed text-paper/40">
+          318 từ HSK 1 · 12 chủ đề. HSK 2/3 sẵn sàng khi bạn gắn dữ liệu mới vào
+          <code class="text-gold/70">js/data.js</code>.
+        </p>
+      </aside>
+
+      <main class="flex-1 p-4 sm:p-6 lg:p-10">
+        <header class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+          <div>
+            <p id="crumb" class="text-xs uppercase tracking-[0.2em] text-gold/70">Tổng quan</p>
+            <h2 id="page-title" class="text-2xl sm:text-3xl font-semibold mt-1">Chọn chủ đề để học</h2>
+          </div>
+          <div class="relative w-full sm:w-72">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-paper/40"></i>
+            <input
+              id="search-input"
+              type="search"
+              placeholder="Tìm Hán tự, pinyin, nghĩa..."
+              class="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none focus:border-gold/50"
+            />
+          </div>
+        </header>
+
+        <section id="view-home" class="scene"></section>
+        <section id="view-study" class="scene hidden"></section>
+        <section id="view-flash" class="scene hidden"></section>
+        <section id="view-quiz" class="scene hidden"></section>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="js/data.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>
