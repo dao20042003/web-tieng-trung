@@ -120,7 +120,7 @@
     const options = [`<option value="all">Tất cả chủ đề</option>`]
       .concat(topics().map((t) => `<option value="${t.id}" ${t.id === state.topicId ? "selected" : ""}>${t.name}</option>`))
       .join("");
-    return `<select class="topic-select bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm ${extraClass}">${options}</select>`;
+    return `<select class="topic-select bg-white text-black border border-white/10 rounded-xl px-3 py-2 text-sm ${extraClass}">${options}</select>`;
   }
 
   function renderHome() {
