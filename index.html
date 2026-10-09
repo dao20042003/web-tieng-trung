@@ -10,6 +10,15 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function() {
+        const _warn = console.warn;
+        console.warn = function(...args) {
+          if (typeof args[0] === "string" && args[0].includes("cdn.tailwindcss.com should not be used in production")) return;
+          _warn.apply(console, args);
+        };
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -68,8 +77,11 @@
           <button data-view="quiz" class="nav-btn glass rounded-xl px-3 py-2.5 text-sm flex items-center justify-center lg:justify-start gap-2">
             <i data-lucide="list-checks" class="w-4 h-4"></i> <span>Trắc nghiệm</span>
           </button>
-          <button data-view="sentence" class="nav-btn glass rounded-xl px-3 py-2.5 text-sm flex items-center justify-center lg:justify-start gap-2 col-span-2 sm:col-span-1 lg:col-span-1">
+          <button data-view="sentence" class="nav-btn glass rounded-xl px-3 py-2.5 text-sm flex items-center justify-center lg:justify-start gap-2">
             <i data-lucide="sparkles" class="w-4 h-4 text-gold"></i> <span>Luyện đặt câu</span>
+          </button>
+          <button data-view="typing" class="nav-btn glass rounded-xl px-3 py-2.5 text-sm flex items-center justify-center lg:justify-start gap-2 col-span-2 sm:col-span-1 lg:col-span-1">
+            <i data-lucide="keyboard" class="w-4 h-4 text-emerald-400"></i> <span>Luyện gõ</span>
           </button>
         </nav>
 
@@ -121,13 +133,14 @@
         <section id="view-flash" class="scene hidden"></section>
         <section id="view-quiz" class="scene hidden"></section>
         <section id="view-sentence" class="scene hidden"></section>
+        <section id="view-typing" class="scene hidden"></section>
       </main>
     </div>
 
     <!-- Toast Notification Container -->
     <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="js/lucide.min.js"></script>
     <script src="js/data.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/app.js"></script>

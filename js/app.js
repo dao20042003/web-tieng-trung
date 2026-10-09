@@ -9,6 +9,7 @@
     flipped: false,
     quiz: null,
     sentenceTest: null,
+    typing: null,
   };
 
   const els = {
@@ -23,6 +24,7 @@
     flash: document.getElementById("view-flash"),
     quiz: document.getElementById("view-quiz"),
     sentence: document.getElementById("view-sentence"),
+    typing: document.getElementById("view-typing"),
   };
 
   function currentLevel() {
@@ -87,7 +89,7 @@
 
   function setView(view) {
     state.view = view;
-    ["home", "study", "flash", "quiz", "sentence"].forEach((name) => {
+    ["home", "study", "flash", "quiz", "sentence", "typing"].forEach((name) => {
       if (els[name]) {
         els[name].classList.toggle("hidden", name !== view);
       }
@@ -336,9 +338,10 @@
       render();
     });
 
-    document.getElementById("flash-card")?.addEventListener("click", () => {
+    const flashCardEl = document.getElementById("flash-card");
+    flashCardEl?.addEventListener("click", () => {
       state.flipped = !state.flipped;
-      render();
+      flashCardEl.classList.toggle("is-flipped", state.flipped);
     });
 
     // Nút phát âm mặt trước (ngăn lật thẻ)
@@ -377,7 +380,7 @@
       level: state.levelId,
       topicId: state.topicId === "all" ? undefined : state.topicId,
     });
-    const count = Math.min(10, pool.length);
+    const count = Math.min(30, pool.length);
     const selected = shuffle(pool).slice(0, count);
     state.quiz = {
       items: selected.map((word) => makeQuestion(word, pool)),
@@ -456,11 +459,18 @@
     }
 
     const q = quiz.items[quiz.index];
+    const quizPct = Math.round(((quiz.index + 1) / quiz.items.length) * 100);
     els.quiz.innerHTML = `
       <div class="max-w-xl mx-auto">
         <div class="flex gap-2 mb-5">${topicSelect("flex-1")}</div>
-        <p class="text-xs text-paper/40">Câu ${quiz.index + 1} / ${quiz.items.length}</p>
-        <div class="glass rounded-3xl p-6 mt-3">
+        <div class="flex items-center justify-between text-xs text-paper/60 mb-2">
+          <span>Câu ${quiz.index + 1} / ${quiz.items.length}</span>
+          <span class="text-gold font-medium">${quiz.correct} câu đúng</span>
+        </div>
+        <div class="progress-bar mb-4">
+          <span style="width: ${quizPct}%"></span>
+        </div>
+        <div class="glass rounded-3xl p-6 mt-1">
           <p class="text-sm text-gold/80">${q.label}</p>
           <p class="hanzi text-5xl mt-4 ${q.mode === "meaning-hanzi" ? "text-2xl font-sans" : ""}">${q.prompt}</p>
           ${q.mode !== "meaning-hanzi" ? `<button id="quiz-speak" class="mt-4 text-sm text-paper/50 flex items-center gap-1 hover:text-gold transition"><i data-lucide="volume-2" class="w-4 h-4"></i> Nghe</button>` : ""}
@@ -946,6 +956,373 @@
     });
   }
 
+  // ================= MODULE: LUYỆN TẬP GÕ CHỮ HÁN (TYPING PRACTICE) =================
+  function normalizePinyin(str) {
+    if (!str) return "";
+    return str
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/ü/g, "v")
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  }
+
+  function startTyping(customPool = null) {
+    const pool = customPool && customPool.length ? customPool : DataStore.getVocab({
+      level: state.levelId,
+      topicId: state.topicId === "all" ? undefined : state.topicId,
+    });
+    const count = Math.min(20, pool.length);
+    const selected = shuffle(pool).slice(0, count);
+
+    state.typing = {
+      mode: state.typing?.mode || "hanzi",
+      showHintPinyin: state.typing?.showHintPinyin !== undefined ? state.typing.showHintPinyin : true,
+      items: selected,
+      index: 0,
+      correctCount: 0,
+      wrongList: [],
+      done: false,
+      revealed: false,
+      status: "idle",
+    };
+  }
+
+  function renderTyping() {
+    els.crumb.textContent = "Luyện gõ bàn phím";
+    els.title.textContent = "Luyện tập gõ chữ Hán";
+
+    if (!state.typing || !state.typing.items.length) {
+      startTyping();
+    }
+    const typing = state.typing;
+    if (!typing || !typing.items.length) {
+      els.typing.innerHTML = `<p class="text-paper/50">Không đủ từ vựng để tạo bài luyện gõ.</p>`;
+      return;
+    }
+
+    if (typing.done) {
+      const pct = Math.round((typing.correctCount / typing.items.length) * 100);
+      let evaluation = "Cần luyện tập thêm để tăng tốc độ và độ chuẩn xác nhé!";
+      let badgeColor = "text-amber-400";
+      if (pct >= 90) {
+        evaluation = "🎉 Tuyệt vời! Bạn gõ chữ Hán cực kỳ nhanh và chuẩn xác!";
+        badgeColor = "text-emerald-400";
+      } else if (pct >= 70) {
+        evaluation = "👏 Khá tốt! Phản xạ gõ và nhớ chữ của bạn rất ổn định.";
+        badgeColor = "text-gold";
+      } else if (pct >= 50) {
+        evaluation = "💪 Khá ổn! Hãy luyện thêm để gõ nhanh và nhớ mặt chữ sâu hơn.";
+        badgeColor = "text-amber-300";
+      }
+
+      els.typing.innerHTML = `
+        <div class="max-w-xl mx-auto glass rounded-3xl p-8 sm:p-10 text-center">
+          <div class="seal mx-auto mb-4 text-xl">字</div>
+          <h3 class="text-2xl font-bold">Hoàn thành vòng luyện gõ</h3>
+
+          <div class="my-6 py-6 border-y border-white/10">
+            <p class="text-5xl font-extrabold ${badgeColor}">${pct}%</p>
+            <p class="text-paper/70 mt-2 font-medium">${typing.correctCount} / ${typing.items.length} từ gõ đúng</p>
+            <p class="text-sm text-paper/80 mt-3 max-w-md mx-auto leading-relaxed">${evaluation}</p>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-3 justify-center">
+            <button id="btn-typing-retry-all" class="bg-vermillion/90 hover:bg-vermillion text-white rounded-xl px-6 py-3 text-sm font-medium transition flex items-center justify-center gap-2">
+              <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Luyện vòng mới (20 từ)
+            </button>
+            ${
+              typing.wrongList.length
+                ? `<button id="btn-typing-retry-wrong" class="glass rounded-xl px-6 py-3 text-sm font-medium hover:border-gold/50 transition flex items-center justify-center gap-2 text-gold">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i> Luyện lại ${typing.wrongList.length} từ chưa đúng
+                  </button>`
+                : ""
+            }
+          </div>
+        </div>`;
+
+      document.getElementById("btn-typing-retry-all")?.addEventListener("click", () => {
+        startTyping();
+        renderTyping();
+        refreshIcons();
+      });
+
+      document.getElementById("btn-typing-retry-wrong")?.addEventListener("click", () => {
+        startTyping(typing.wrongList);
+        renderTyping();
+        refreshIcons();
+      });
+      return;
+    }
+
+    const word = typing.items[typing.index];
+    const progressPct = Math.round(((typing.index) / typing.items.length) * 100);
+
+    els.typing.innerHTML = `
+      <div class="max-w-xl mx-auto">
+        <!-- Chuyển đổi chế độ gõ A / B -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6">
+          <div class="flex p-1 rounded-2xl bg-white/5 border border-white/10 w-full sm:w-auto">
+            <button id="mode-btn-hanzi" class="mode-pill flex-1 sm:flex-initial rounded-xl px-4 py-2 text-xs flex items-center justify-center gap-1.5 ${
+              typing.mode === "hanzi" ? "is-active" : ""
+            }">
+              <i data-lucide="type" class="w-3.5 h-3.5"></i> Chế độ A: Gõ Hán tự
+            </button>
+            <button id="mode-btn-pinyin" class="mode-pill flex-1 sm:flex-initial rounded-xl px-4 py-2 text-xs flex items-center justify-center gap-1.5 ${
+              typing.mode === "pinyin" ? "is-active" : ""
+            }">
+              <i data-lucide="spell-check" class="w-3.5 h-3.5"></i> Chế độ B: Đoán Pinyin
+            </button>
+          </div>
+          ${topicSelect("text-xs py-1.5")}
+        </div>
+
+        <!-- Tiến độ -->
+        <div class="flex items-center justify-between text-xs text-paper/60 mb-2">
+          <span class="font-medium text-gold">Từ ${typing.index + 1} / ${typing.items.length}</span>
+          <span>${typing.correctCount} từ đúng</span>
+        </div>
+        <div class="progress-bar mb-6">
+          <span style="width: ${progressPct}%"></span>
+        </div>
+
+        <!-- Thẻ từ mục tiêu -->
+        <div class="glass rounded-3xl p-6 sm:p-8 text-center relative overflow-hidden">
+          
+          <button id="typing-tts-btn" class="flash-speaker-btn absolute top-5 right-5" title="Nghe phát âm">
+            <i data-lucide="volume-2" class="w-5 h-5 text-gold"></i>
+          </button>
+
+          ${
+            typing.mode === "hanzi"
+              ? `
+              <p class="text-xs uppercase tracking-wider text-gold/80 font-medium">Nghĩa tiếng Việt</p>
+              <h2 class="text-3xl sm:text-4xl font-bold mt-2 text-paper leading-snug">${word.meaning}</h2>
+              
+              <div class="mt-4 flex items-center justify-center gap-2">
+                ${
+                  typing.showHintPinyin
+                    ? `<span class="text-lg text-gold font-medium bg-gold/10 border border-gold/30 px-3 py-1 rounded-full">${word.pinyin}</span>
+                       <button id="btn-toggle-pinyin-hint" class="text-xs text-paper/40 hover:text-paper/70 p-1" title="Ẩn gợi ý Pinyin">
+                         <i data-lucide="eye-off" class="w-4 h-4"></i>
+                       </button>`
+                    : `<button id="btn-toggle-pinyin-hint" class="text-xs text-gold/80 bg-white/5 border border-white/10 hover:border-gold/40 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition">
+                         <i data-lucide="eye" class="w-3.5 h-3.5"></i> Hiện gợi ý Pinyin
+                       </button>`
+                }
+              </div>
+
+              <p class="text-xs text-paper/40 mt-5">
+                💡 Bật bộ gõ tiếng Trung (Pinyin) trên bàn phím và gõ chữ Hán tương ứng
+              </p>
+              `
+              : `
+              <p class="text-xs uppercase tracking-wider text-gold/80 font-medium">Nhìn Hán tự đoán Pinyin</p>
+              <h2 class="hanzi text-5xl sm:text-6xl font-bold mt-2 text-paper leading-none">${word.hanzi}</h2>
+              <p class="text-base text-paper/70 mt-3 font-medium">${word.meaning}</p>
+              <p class="text-xs text-paper/40 mt-5">
+                💡 Gõ phiên âm Pinyin của từ trên (hỗ trợ cả gõ không dấu: ví dụ <code class="text-gold/80 font-mono">xuesheng</code>)
+              </p>
+              `
+          }
+
+          <!-- Ô nhập liệu gõ chữ -->
+          <div class="mt-6 flex flex-col items-center">
+            <input
+              id="typing-input-field"
+              type="text"
+              class="typing-input ${typing.status === 'correct' ? 'typing-correct' : ''} ${typing.status === 'wrong' ? 'typing-wrong' : ''}"
+              placeholder="${typing.mode === 'hanzi' ? 'Gõ chữ Hán...' : 'Gõ pinyin...'}"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              ${typing.revealed ? "disabled" : ""}
+            />
+            <p class="text-xs text-paper/40 mt-3 text-center flex items-center gap-1.5">
+              <span>Nhấn</span>
+              <kbd class="px-2 py-0.5 rounded bg-white/10 text-paper/80 font-mono text-[11px] border border-white/15">Enter</kbd>
+              <span>để kiểm tra hoặc tự nhận khi gõ đúng</span>
+            </p>
+          </div>
+
+          <!-- Banner Xem đáp án khi cần -->
+          ${
+            typing.revealed
+              ? `
+              <div class="mt-5 p-4 rounded-2xl bg-white/5 border border-gold/40 text-center animate-pulse-once">
+                <p class="text-xs text-paper/50">Đáp án chuẩn:</p>
+                <p class="hanzi text-4xl font-bold text-gold mt-1">${word.hanzi}</p>
+                <p class="text-lg text-paper font-semibold mt-1">${word.pinyin}</p>
+                <p class="text-sm text-paper/70 mt-0.5">${word.meaning}</p>
+                <button id="typing-next-btn" class="mt-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl px-6 py-2.5 text-sm font-medium transition flex items-center gap-2 mx-auto shadow-lg shadow-emerald-700/20">
+                  <span>${typing.index + 1 >= typing.items.length ? "Xem kết quả" : "Từ tiếp theo"}</span>
+                  <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+              </div>`
+              : `
+              <div class="flex items-center justify-between gap-3 mt-8 pt-4 border-t border-white/10">
+                <button id="typing-skip-btn" class="glass rounded-xl px-4 py-2.5 text-xs text-paper/60 hover:text-gold hover:border-gold/40 transition flex items-center gap-1.5">
+                  <i data-lucide="help-circle" class="w-4 h-4"></i> Xem đáp án / Bỏ qua
+                </button>
+                <button id="typing-check-btn" class="bg-vermillion/90 hover:bg-vermillion text-white rounded-xl px-6 py-2.5 text-sm font-medium transition shadow-lg shadow-vermillion/20">
+                  Kiểm tra
+                </button>
+              </div>`
+          }
+
+        </div>
+      </div>`;
+
+    // Cài đặt sự kiện
+    els.typing.querySelector(".topic-select")?.addEventListener("change", (e) => {
+      state.topicId = e.target.value;
+      startTyping();
+      renderTyping();
+      refreshIcons();
+    });
+
+    document.getElementById("mode-btn-hanzi")?.addEventListener("click", () => {
+      if (typing.mode !== "hanzi") {
+        typing.mode = "hanzi";
+        typing.status = "idle";
+        typing.revealed = false;
+        renderTyping();
+        refreshIcons();
+      }
+    });
+
+    document.getElementById("mode-btn-pinyin")?.addEventListener("click", () => {
+      if (typing.mode !== "pinyin") {
+        typing.mode = "pinyin";
+        typing.status = "idle";
+        typing.revealed = false;
+        renderTyping();
+        refreshIcons();
+      }
+    });
+
+    document.getElementById("btn-toggle-pinyin-hint")?.addEventListener("click", () => {
+      typing.showHintPinyin = !typing.showHintPinyin;
+      renderTyping();
+      refreshIcons();
+    });
+
+    document.getElementById("typing-tts-btn")?.addEventListener("click", () => {
+      speak(word.hanzi);
+    });
+
+    const inputEl = document.getElementById("typing-input-field");
+
+    const checkMatch = (val) => {
+      if (!val) return false;
+      if (typing.mode === "hanzi") {
+        return val.trim() === word.hanzi.trim();
+      } else {
+        const normVal = normalizePinyin(val);
+        const normTarget = normalizePinyin(word.pinyin);
+        return normVal === normTarget || val.trim().toLowerCase() === word.pinyin.trim().toLowerCase();
+      }
+    };
+
+    const handleSuccess = () => {
+      if (typing.status === "correct") return;
+      typing.status = "correct";
+      typing.correctCount += 1;
+      if (inputEl) {
+        inputEl.classList.remove("typing-wrong");
+        inputEl.classList.add("typing-correct");
+        inputEl.disabled = true;
+      }
+      speak(word.hanzi);
+      setTimeout(() => {
+        if (typing.index + 1 >= typing.items.length) {
+          typing.done = true;
+        } else {
+          typing.index += 1;
+          typing.status = "idle";
+          typing.revealed = false;
+        }
+        renderTyping();
+        refreshIcons();
+      }, 500);
+    };
+
+    const handleWrong = () => {
+      typing.status = "wrong";
+      if (inputEl) {
+        inputEl.classList.remove("typing-wrong");
+        void inputEl.offsetWidth;
+        inputEl.classList.add("typing-wrong");
+      }
+    };
+
+    inputEl?.addEventListener("input", (e) => {
+      const val = e.target.value;
+      if (checkMatch(val)) {
+        handleSuccess();
+      } else {
+        if (typing.status === "wrong") {
+          typing.status = "idle";
+          inputEl.classList.remove("typing-wrong");
+        }
+      }
+    });
+
+    inputEl?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const val = inputEl.value;
+        if (!val.trim()) return;
+        if (checkMatch(val)) {
+          handleSuccess();
+        } else {
+          handleWrong();
+        }
+      }
+    });
+
+    document.getElementById("typing-check-btn")?.addEventListener("click", () => {
+      const val = inputEl?.value || "";
+      if (!val.trim()) return;
+      if (checkMatch(val)) {
+        handleSuccess();
+      } else {
+        handleWrong();
+      }
+    });
+
+    document.getElementById("typing-skip-btn")?.addEventListener("click", () => {
+      typing.revealed = true;
+      if (!typing.wrongList.some((w) => w.id === word.id)) {
+        typing.wrongList.push(word);
+      }
+      speak(word.hanzi);
+      renderTyping();
+      refreshIcons();
+    });
+
+    document.getElementById("typing-next-btn")?.addEventListener("click", () => {
+      if (typing.index + 1 >= typing.items.length) {
+        typing.done = true;
+      } else {
+        typing.index += 1;
+        typing.status = "idle";
+        typing.revealed = false;
+      }
+      renderTyping();
+      refreshIcons();
+    });
+
+    setTimeout(() => {
+      const field = document.getElementById("typing-input-field");
+      if (field && !typing.revealed) {
+        field.focus();
+      }
+    }, 60);
+  }
+
   // ================= MAIN RENDER =================
   function render() {
     renderLevels();
@@ -955,6 +1332,7 @@
     if (state.view === "flash") renderFlash();
     if (state.view === "quiz") renderQuiz();
     if (state.view === "sentence") renderSentence();
+    if (state.view === "typing") renderTyping();
     refreshIcons();
   }
 
@@ -964,6 +1342,7 @@
       const v = btn.dataset.view;
       if (v === "quiz" && !state.quiz) startQuiz();
       if (v === "sentence" && !state.sentenceTest) startSentenceTest();
+      if (v === "typing" && !state.typing) startTyping();
       if (v === "flash") {
         state.flashIndex = 0;
         state.flipped = false;
