@@ -3,7 +3,9 @@ const ProgressStore = (() => {
 
   const emptyLevel = () => ({
     mastered: {},
+    favorites: {},
     quiz: { correct: 0, total: 0, lastScore: null },
+    sentence: { correct: 0, total: 0, lastScore: null },
   });
 
   function read() {
@@ -28,7 +30,9 @@ const ProgressStore = (() => {
     const id = String(levelId);
     if (!state.levels[id]) state.levels[id] = emptyLevel();
     if (!state.levels[id].mastered) state.levels[id].mastered = {};
+    if (!state.levels[id].favorites) state.levels[id].favorites = {};
     if (!state.levels[id].quiz) state.levels[id].quiz = { correct: 0, total: 0, lastScore: null };
+    if (!state.levels[id].sentence) state.levels[id].sentence = { correct: 0, total: 0, lastScore: null };
     return state.levels[id];
   }
 
@@ -68,6 +72,21 @@ const ProgressStore = (() => {
       const ids = new Set(this.getMasteredIds(levelId));
       return words.filter((word) => ids.has(word.id)).length;
     },
+    isFavorite(levelId, wordId) {
+      const state = read();
+      const level = ensureLevel(state, levelId);
+      return Boolean(level.favorites[String(wordId)]);
+    },
+    toggleFavorite(levelId, wordId) {
+      const state = read();
+      const level = ensureLevel(state, levelId);
+      const key = String(wordId);
+      const next = !level.favorites[key];
+      if (next) level.favorites[key] = true;
+      else delete level.favorites[key];
+      write(state);
+      return next;
+    },
     recordQuiz(levelId, correct, total) {
       const state = read();
       const level = ensureLevel(state, levelId);
@@ -81,10 +100,73 @@ const ProgressStore = (() => {
       const state = read();
       return ensureLevel(state, levelId).quiz;
     },
+    recordSentence(levelId, correct, total) {
+      const state = read();
+      const level = ensureLevel(state, levelId);
+      level.sentence.correct += correct;
+      level.sentence.total += total;
+      level.sentence.lastScore = total ? Math.round((correct / total) * 100) : 0;
+      write(state);
+      return level.sentence;
+    },
+    getSentenceStats(levelId) {
+      const state = read();
+      return ensureLevel(state, levelId).sentence;
+    },
     resetLevel(levelId) {
       const state = read();
       state.levels[String(levelId)] = emptyLevel();
       write(state);
+    },
+    exportProgress() {
+      const state = read();
+      const exportData = {
+        version: "1.0",
+        appName: "HSK Lexis",
+        exportedAt: new Date().toISOString(),
+        data: state,
+      };
+      const jsonStr = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "hsk_progress_backup.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return true;
+    },
+    importProgress(jsonInput) {
+      try {
+        let parsed = typeof jsonInput === "string" ? JSON.parse(jsonInput) : jsonInput;
+        if (!parsed || typeof parsed !== "object") {
+          return { success: false, error: "Dữ liệu JSON không hợp lệ." };
+        }
+        const stateData = parsed.data && typeof parsed.data === "object" ? parsed.data : parsed;
+        if (!stateData.levels || typeof stateData.levels !== "object") {
+          return { success: false, error: "File sao lưu thiếu dữ liệu các cấp độ (levels)." };
+        }
+        const cleanState = {
+          currentLevel: Number(stateData.currentLevel) || 1,
+          levels: {},
+        };
+        for (const [lvlId, lvlData] of Object.entries(stateData.levels)) {
+          if (lvlData && typeof lvlData === "object") {
+            cleanState.levels[String(lvlId)] = {
+              mastered: lvlData.mastered && typeof lvlData.mastered === "object" ? { ...lvlData.mastered } : {},
+              favorites: lvlData.favorites && typeof lvlData.favorites === "object" ? { ...lvlData.favorites } : {},
+              quiz: lvlData.quiz || { correct: 0, total: 0, lastScore: null },
+              sentence: lvlData.sentence || { correct: 0, total: 0, lastScore: null },
+            };
+          }
+        }
+        write(cleanState);
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: err.message || "Lỗi đọc file JSON." };
+      }
     },
   };
 })();

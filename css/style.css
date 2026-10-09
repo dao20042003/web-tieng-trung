@@ -149,3 +149,182 @@ body {
   opacity: 0.55;
   filter: grayscale(0.25);
 }
+
+/* Flashcard Specific Enhancements */
+.flash-speaker-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  background: rgba(255, 248, 240, 0.1);
+  border: 1px solid rgba(255, 248, 240, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  cursor: pointer;
+}
+
+.flash-speaker-btn:hover {
+  background: rgba(212, 160, 23, 0.25);
+  border-color: rgba(212, 160, 23, 0.6);
+  transform: scale(1.08);
+}
+
+.flash-speaker-btn:active {
+  transform: scale(0.95);
+}
+
+/* Sentence Building Styles */
+.answer-zone {
+  min-height: 92px;
+  border: 2px dashed rgba(255, 248, 240, 0.2);
+  border-radius: 1.25rem;
+  background: rgba(255, 248, 240, 0.03);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  align-items: center;
+  padding: 1rem;
+  transition: all 0.25s ease;
+}
+
+.answer-zone.has-items {
+  border-style: solid;
+  border-color: rgba(212, 160, 23, 0.35);
+  background: rgba(212, 160, 23, 0.04);
+}
+
+.sentence-correct {
+  border-color: #3d9b7a !important;
+  background: rgba(47, 111, 94, 0.16) !important;
+  box-shadow: 0 0 24px rgba(61, 155, 122, 0.25);
+}
+
+.sentence-wrong {
+  border-color: #c23a2b !important;
+  background: rgba(194, 58, 43, 0.16) !important;
+  box-shadow: 0 0 24px rgba(194, 58, 43, 0.25);
+}
+
+.word-chip {
+  cursor: pointer;
+  padding: 0.5rem 1.15rem;
+  border-radius: 0.875rem;
+  font-family: "Noto Sans SC", serif;
+  font-size: 1.2rem;
+  line-height: 1.4;
+  border: 1px solid rgba(255, 248, 240, 0.18);
+  background: rgba(255, 248, 240, 0.08);
+  color: var(--paper);
+  transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.word-chip:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(212, 160, 23, 0.5);
+  background: rgba(255, 248, 240, 0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.word-chip:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.word-chip-answer {
+  border-color: rgba(212, 160, 23, 0.6);
+  background: linear-gradient(135deg, rgba(212, 160, 23, 0.25), rgba(194, 58, 43, 0.18));
+  color: #fff;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.word-chip-answer:hover {
+  border-color: rgba(239, 106, 90, 0.8);
+  background: rgba(194, 58, 43, 0.25);
+}
+
+.word-chip.is-used {
+  opacity: 0.35;
+  filter: grayscale(0.5);
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Toast Notifications */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1.25rem;
+  border-radius: 1rem;
+  background: rgba(20, 15, 12, 0.94);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(212, 160, 23, 0.4);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  color: var(--paper);
+  font-size: 0.875rem;
+  animation: toastIn 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  pointer-events: auto;
+}
+
+.toast.toast-error {
+  border-color: rgba(194, 58, 43, 0.6);
+}
+
+.toast.toast-success {
+  border-color: rgba(61, 155, 122, 0.6);
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-fadeout {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: all 0.3s ease;
+}
+
+/* Modals */
+.app-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(10, 7, 6, 0.78);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: modalFade 0.25s ease;
+}
+
+@keyframes modalFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.app-modal-content {
+  max-width: 38rem;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: linear-gradient(160deg, rgba(28, 21, 17, 0.96), rgba(15, 11, 9, 0.98));
+  border: 1px solid rgba(212, 160, 23, 0.35);
+  border-radius: 1.75rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  padding: 1.75rem;
+  animation: rise 0.35s ease both;
+}
