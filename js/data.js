@@ -479,4 +479,23 @@ const DataStore = {
   getSentenceById(id) {
     return SENTENCE_DATA.find((s) => s.id === Number(id)) || null;
   },
+  getSentencesForVocab(hanzi, level) {
+    const list = this.getSentences({ level });
+    return list.filter((s) => {
+      const fullText = (s.correctOrder || []).join("");
+      return fullText.includes(hanzi);
+    });
+  },
+  getReadings({ level, type } = {}) {
+    if (typeof READING_DATA === "undefined") return [];
+    return READING_DATA.filter((r) => {
+      if (level != null && r.level !== Number(level)) return false;
+      if (type && type !== "all" && r.type !== type) return false;
+      return true;
+    });
+  },
+  getReadingById(id) {
+    if (typeof READING_DATA === "undefined") return null;
+    return READING_DATA.find((r) => r.id === id) || null;
+  },
 };

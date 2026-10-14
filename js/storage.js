@@ -6,6 +6,8 @@ const ProgressStore = (() => {
     favorites: {},
     quiz: { correct: 0, total: 0, lastScore: null },
     sentence: { correct: 0, total: 0, lastScore: null },
+    listening: { correct: 0, total: 0, lastScore: null },
+    reading: { completed: {}, count: 0 },
   });
 
   function read() {
@@ -33,6 +35,8 @@ const ProgressStore = (() => {
     if (!state.levels[id].favorites) state.levels[id].favorites = {};
     if (!state.levels[id].quiz) state.levels[id].quiz = { correct: 0, total: 0, lastScore: null };
     if (!state.levels[id].sentence) state.levels[id].sentence = { correct: 0, total: 0, lastScore: null };
+    if (!state.levels[id].listening) state.levels[id].listening = { correct: 0, total: 0, lastScore: null };
+    if (!state.levels[id].reading) state.levels[id].reading = { completed: {}, count: 0 };
     return state.levels[id];
   }
 
@@ -112,6 +116,39 @@ const ProgressStore = (() => {
     getSentenceStats(levelId) {
       const state = read();
       return ensureLevel(state, levelId).sentence;
+    },
+    recordListening(levelId, correct, total) {
+      const state = read();
+      const level = ensureLevel(state, levelId);
+      level.listening.correct += correct;
+      level.listening.total += total;
+      level.listening.lastScore = total ? Math.round((correct / total) * 100) : 0;
+      write(state);
+      return level.listening;
+    },
+    getListeningStats(levelId) {
+      const state = read();
+      return ensureLevel(state, levelId).listening || { correct: 0, total: 0, lastScore: null };
+    },
+    recordReading(levelId, readingId) {
+      const state = read();
+      const level = ensureLevel(state, levelId);
+      const key = String(readingId);
+      if (!level.reading.completed[key]) {
+        level.reading.completed[key] = true;
+        level.reading.count = Object.keys(level.reading.completed).length;
+        write(state);
+      }
+      return level.reading;
+    },
+    isReadingDone(levelId, readingId) {
+      const state = read();
+      const level = ensureLevel(state, levelId);
+      return Boolean(level.reading?.completed?.[String(readingId)]);
+    },
+    getReadingStats(levelId) {
+      const state = read();
+      return ensureLevel(state, levelId).reading || { completed: {}, count: 0 };
     },
     resetLevel(levelId) {
       const state = read();

@@ -8,7 +8,10 @@
     flashIndex: 0,
     flipped: false,
     quiz: null,
+    quizType: "cloze",
+    listening: null,
     sentenceTest: null,
+    reading: null,
     typing: null,
   };
 
@@ -23,7 +26,9 @@
     study: document.getElementById("view-study"),
     flash: document.getElementById("view-flash"),
     quiz: document.getElementById("view-quiz"),
+    listening: document.getElementById("view-listening"),
     sentence: document.getElementById("view-sentence"),
+    reading: document.getElementById("view-reading"),
     typing: document.getElementById("view-typing"),
   };
 
@@ -47,15 +52,22 @@
     });
   }
 
-  function speak(text) {
-    if (!window.speechSynthesis) return;
+  function speak(text, rate = 0.9, onEnd = null) {
+    if (!window.speechSynthesis) {
+      if (onEnd) onEnd();
+      return;
+    }
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = "zh-CN";
-    utter.rate = 0.9;
+    utter.rate = rate;
     const voices = window.speechSynthesis.getVoices();
     const voice = voices.find((v) => v.lang.startsWith("zh"));
     if (voice) utter.voice = voice;
+    if (onEnd) {
+      utter.onend = onEnd;
+      utter.onerror = onEnd;
+    }
     window.speechSynthesis.speak(utter);
   }
 
@@ -89,7 +101,7 @@
 
   function setView(view) {
     state.view = view;
-    ["home", "study", "flash", "quiz", "sentence", "typing"].forEach((name) => {
+    ["home", "study", "flash", "quiz", "listening", "sentence", "reading", "typing"].forEach((name) => {
       if (els[name]) {
         els[name].classList.toggle("hidden", name !== view);
       }
@@ -124,7 +136,9 @@
         state.levelId = level.id;
         state.topicId = "all";
         state.quiz = null;
+        state.listening = null;
         state.sentenceTest = null;
+        state.reading = null;
         state.typing = null;
         ProgressStore.setCurrentLevel(level.id);
         render();
@@ -155,14 +169,18 @@
     const all = DataStore.getVocab({ level: state.levelId });
     const masteredAll = ProgressStore.countMastered(state.levelId, all);
     const quiz = ProgressStore.getQuizStats(state.levelId);
+    const listeningStats = ProgressStore.getListeningStats(state.levelId);
     const sentenceStats = ProgressStore.getSentenceStats(state.levelId);
+    const readingStats = ProgressStore.getReadingStats(state.levelId);
 
     els.home.innerHTML = `
-      <div class="grid sm:grid-cols-4 gap-3 mb-6">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Từ vựng</p><p class="text-2xl mt-1">${all.length}</p></div>
         <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Đã thuộc</p><p class="text-2xl mt-1 text-gold">${masteredAll}</p></div>
         <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Quiz gần nhất</p><p class="text-2xl mt-1">${quiz.lastScore == null ? "—" : quiz.lastScore + "%"}</p></div>
-        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Đặt câu gần nhất</p><p class="text-2xl mt-1 text-emerald-400">${sentenceStats.lastScore == null ? "—" : sentenceStats.lastScore + "%"}</p></div>
+        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Luyện nghe</p><p class="text-2xl mt-1 text-sky-400">${listeningStats.lastScore == null ? "—" : listeningStats.lastScore + "%"}</p></div>
+        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Đặt câu</p><p class="text-2xl mt-1 text-emerald-400">${sentenceStats.lastScore == null ? "—" : sentenceStats.lastScore + "%"}</p></div>
+        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Bài đọc xong</p><p class="text-2xl mt-1 text-amber-400">${readingStats.count}</p></div>
       </div>
       <div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         ${topics()
@@ -183,6 +201,7 @@
                 <button data-open-study="${topic.id}" class="flex-1 bg-vermillion/80 hover:bg-vermillion rounded-xl py-2 text-sm">Học</button>
                 <button data-open-flash="${topic.id}" class="px-3 glass rounded-xl" title="Flashcard"><i data-lucide="layers" class="w-4 h-4"></i></button>
                 <button data-open-quiz="${topic.id}" class="px-3 glass rounded-xl" title="Quiz"><i data-lucide="list-checks" class="w-4 h-4"></i></button>
+                <button data-open-listening="${topic.id}" class="px-3 glass rounded-xl text-sky-400 hover:text-sky-300" title="Luyện nghe"><i data-lucide="headphones" class="w-4 h-4"></i></button>
               </div>
             </article>`;
           })
@@ -208,6 +227,14 @@
         state.topicId = btn.dataset.openQuiz;
         startQuiz();
         setView("quiz");
+      });
+    });
+    els.home.querySelectorAll("[data-open-listening]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.topicId = btn.dataset.openListening;
+        startListening();
+        setView("listening");
+        playCurrentListeningWord();
       });
     });
   }
@@ -377,147 +404,1024 @@
     });
   }
 
-  // ================= TRẮC NGHIỆM (QUIZ) =================
-  function startQuiz() {
-    const pool = DataStore.getVocab({
-      level: state.levelId,
-      topicId: state.topicId === "all" ? undefined : state.topicId,
-    });
-    const count = Math.min(30, pool.length);
-    const selected = shuffle(pool).slice(0, count);
-    state.quiz = {
-      items: selected.map((word) => makeQuestion(word, pool)),
-      index: 0,
-      correct: 0,
-      answered: false,
-      done: false,
+  // ================= TRẮC NGHIỆM THUẦN CHỮ HÁN (PURE HANZI QUIZ) =================
+  function highlightSentenceAnswer(fullCn, answer) {
+    if (!fullCn || !answer) return fullCn || "";
+    const idx = fullCn.indexOf(answer);
+    if (idx === -1) return fullCn;
+    const before = fullCn.slice(0, idx);
+    const after = fullCn.slice(idx + answer.length);
+    return `${before}<span class="text-gold font-bold underline underline-offset-4 decoration-gold/60">${answer}</span>${after}`;
+  }
+
+  function renderClozePrompt(promptCn) {
+    if (!promptCn) return "";
+    return promptCn.replace(
+      /\[ ____ \]|____/g,
+      `<span class="inline-block px-3 py-0.5 mx-1.5 border-b-2 border-dashed border-gold text-gold font-bold tracking-widest">____</span>`
+    );
+  }
+
+  function makeClozeQuestion(sentence, levelVocab) {
+    const fullText = (sentence.correctOrder || []).join("");
+    let fullWithPunc = fullText;
+    if (!/[。？！,.?!]$/.test(fullWithPunc)) {
+      fullWithPunc += sentence.vietnamese && sentence.vietnamese.endsWith("?") ? "？" : "。";
+    }
+
+    // Tìm các từ trong levelVocab có mặt trong câu
+    const matches = levelVocab.filter((w) => w.hanzi && fullText.includes(w.hanzi));
+    let targetWord = null;
+
+    if (matches.length > 0) {
+      // Ưu tiên từ có độ dài >= 2 hoặc chọn ngẫu nhiên trong các từ match
+      const sorted = [...matches].sort((a, b) => b.hanzi.length - a.hanzi.length);
+      const topCandidates = sorted.slice(0, Math.min(4, sorted.length));
+      targetWord = topCandidates[Math.floor(Math.random() * topCandidates.length)];
+    } else {
+      // Fallback: lấy token từ correctOrder (dài 1-4 ký tự, không phải dấu câu)
+      const validTokens = (sentence.correctOrder || []).filter(
+        (t) => t.length >= 1 && t.length <= 4 && !/[。？！,.?!，]/.test(t)
+      );
+      const chosenToken = validTokens.length
+        ? validTokens[Math.floor(Math.random() * validTokens.length)]
+        : sentence.correctOrder[0] || "好";
+      const found = typeof VOCAB_DATA !== "undefined" ? VOCAB_DATA.find((w) => w.hanzi === chosenToken) : null;
+      targetWord = found || {
+        hanzi: chosenToken,
+        pinyin: sentence.pinyin || "",
+        meaning: sentence.vietnamese || "",
+      };
+    }
+
+    const promptCn = fullWithPunc.replace(targetWord.hanzi, " ____ ");
+    const answer = targetWord.hanzi;
+
+    // 3 từ gây nhiễu cùng cấp độ HSK, không trùng đáp án và không xuất hiện trong câu
+    const distractorPool = levelVocab.filter(
+      (w) => w.hanzi !== answer && !fullText.includes(w.hanzi)
+    );
+    const sameLengthPool = distractorPool.filter((w) => w.hanzi.length === answer.length);
+    const candidatePool = sameLengthPool.length >= 3 ? sameLengthPool : distractorPool;
+    const distractors = shuffle(candidatePool).slice(0, 3);
+    const choices = shuffle([targetWord, ...distractors]);
+
+    return {
+      type: "cloze",
+      id: sentence.id,
+      promptCn,
+      fullCn: fullWithPunc,
+      answer,
+      targetWord,
+      sentencePinyin: sentence.pinyin || "",
+      sentenceVietnamese: sentence.vietnamese || "",
+      choices,
     };
   }
 
-  function makeQuestion(word, pool) {
-    const modes = ["hanzi-meaning", "meaning-hanzi", "pinyin-meaning"];
-    const mode = modes[Math.floor(Math.random() * modes.length)];
-    let prompt;
-    let answer;
-    let pick;
-    if (mode === "hanzi-meaning") {
-      prompt = word.hanzi;
-      answer = word.meaning;
-      pick = (w) => w.meaning;
-    } else if (mode === "meaning-hanzi") {
-      prompt = word.meaning;
-      answer = word.hanzi;
-      pick = (w) => w.hanzi;
-    } else {
-      prompt = word.pinyin;
-      answer = word.meaning;
-      pick = (w) => w.meaning;
-    }
-    const distractors = shuffle(pool.filter((w) => w.id !== word.id && pick(w) !== answer))
-      .slice(0, 3)
-      .map(pick);
-    const choices = shuffle([answer, ...distractors]);
-    const labels = {
-      "hanzi-meaning": "Nghĩa của từ này là gì?",
-      "meaning-hanzi": "Hán tự nào mang nghĩa này?",
-      "pinyin-meaning": "Pinyin này nghĩa là gì?",
+  function makeListenHanziQuestion(word, levelVocab) {
+    const answer = word.hanzi;
+    const distractorPool = levelVocab.filter((w) => w.hanzi !== answer);
+    const sameLengthPool = distractorPool.filter((w) => w.hanzi.length === answer.length);
+    const candidatePool = sameLengthPool.length >= 3 ? sameLengthPool : distractorPool;
+    const distractors = shuffle(candidatePool).slice(0, 3);
+    const choices = shuffle([word, ...distractors]);
+
+    return {
+      type: "listen",
+      id: word.id,
+      promptCn: word.hanzi,
+      fullCn: word.hanzi,
+      answer,
+      targetWord: word,
+      sentencePinyin: word.pinyin || "",
+      sentenceVietnamese: word.meaning || "",
+      choices,
     };
-    return { word, mode, prompt, answer, choices, label: labels[mode] };
+  }
+
+  function startQuiz(customQuestions = null) {
+    const levelVocab = DataStore.getVocab({ level: state.levelId });
+    if (customQuestions && customQuestions.length) {
+      state.quiz = {
+        items: customQuestions,
+        index: 0,
+        correct: 0,
+        answered: false,
+        selectedHanzi: null,
+        isCorrect: null,
+        showHint: false,
+        wrongList: [],
+        done: false,
+        showReviewModal: false,
+      };
+      return;
+    }
+
+    const type = state.quizType || "cloze";
+    let questions = [];
+
+    if (type === "cloze") {
+      const allSentences = DataStore.getSentences({ level: state.levelId });
+      let candidateSentences = allSentences;
+
+      if (state.topicId !== "all") {
+        const topicWords = DataStore.getVocab({ level: state.levelId, topicId: state.topicId });
+        const matched = allSentences.filter((s) => {
+          const text = (s.correctOrder || []).join("");
+          return topicWords.some((w) => text.includes(w.hanzi));
+        });
+        if (matched.length >= 10) {
+          candidateSentences = matched;
+        } else {
+          const rest = allSentences.filter((s) => !matched.includes(s));
+          candidateSentences = matched.concat(rest);
+        }
+      }
+
+      const count = Math.min(20, candidateSentences.length);
+      const chosen = shuffle(candidateSentences).slice(0, count);
+      questions = chosen.map((s) => makeClozeQuestion(s, levelVocab));
+
+      if (questions.length === 0) {
+        const pool = DataStore.getVocab({ level: state.levelId });
+        const countPool = Math.min(20, pool.length);
+        questions = shuffle(pool).slice(0, countPool).map((w) => makeListenHanziQuestion(w, levelVocab));
+      }
+    } else {
+      const pool = DataStore.getVocab({
+        level: state.levelId,
+        topicId: state.topicId === "all" ? undefined : state.topicId,
+      });
+      const source = pool.length >= 4 ? pool : levelVocab;
+      const count = Math.min(20, source.length);
+      const chosen = shuffle(source).slice(0, count);
+      questions = chosen.map((w) => makeListenHanziQuestion(w, levelVocab));
+    }
+
+    state.quiz = {
+      items: questions,
+      index: 0,
+      correct: 0,
+      answered: false,
+      selectedHanzi: null,
+      isCorrect: null,
+      showHint: false,
+      wrongList: [],
+      done: false,
+      showReviewModal: false,
+    };
   }
 
   function renderQuiz() {
     els.crumb.textContent = "Trắc nghiệm";
     const topic = DataStore.getTopic(state.topicId);
-    els.title.textContent = topic ? `Quiz · ${topic.name}` : "Quiz tổng hợp";
+    els.title.textContent = topic ? `Trắc nghiệm Hán tự · ${topic.name}` : "Trắc nghiệm thuần chữ Hán";
 
     if (!state.quiz) startQuiz();
     const quiz = state.quiz;
     if (!quiz.items.length) {
-      els.quiz.innerHTML = `<p class="text-paper/50">Không đủ từ để tạo bài quiz.</p>`;
+      els.quiz.innerHTML = `<div class="max-w-md mx-auto glass rounded-3xl p-8 text-center text-paper/50">Không đủ dữ liệu để tạo bài trắc nghiệm.</div>`;
       return;
     }
 
+    // Màn hình tổng kết khi hoàn thành 20/20 câu
     if (quiz.done) {
       const pct = Math.round((quiz.correct / quiz.items.length) * 100);
+      let evalText = "Cần rèn luyện thêm khả năng nhận diện chữ Hán.";
+      let evalColor = "text-vermillion";
+      if (pct >= 90) {
+        evalText = "Xuất sắc! Khả năng nhận diện chữ Hán tuyệt vời!";
+        evalColor = "text-emerald-400";
+      } else if (pct >= 70) {
+        evalText = "Khá tốt! Bạn đã nắm vững mặt chữ Hán cấp độ này.";
+        evalColor = "text-gold";
+      } else if (pct >= 50) {
+        evalText = "Đạt yêu cầu cơ bản, cần ôn tập thêm để phản xạ nhanh hơn.";
+        evalColor = "text-amber-300";
+      }
+
       els.quiz.innerHTML = `
-        <div class="max-w-lg mx-auto glass rounded-3xl p-8 text-center">
-          <p class="hanzi text-4xl">完成</p>
-          <p class="text-4xl font-bold mt-4 text-gold">${pct}%</p>
-          <p class="text-paper/60 mt-2">${quiz.correct}/${quiz.items.length} câu đúng</p>
-          <div class="flex gap-2 justify-center mt-6">
-            ${topicSelect()}
-            <button id="quiz-retry" class="bg-vermillion/80 rounded-xl px-5 py-2 text-sm font-medium">Làm lại</button>
+        <div class="max-w-xl mx-auto glass rounded-3xl p-8 text-center relative overflow-hidden">
+          <div class="seal hanzi text-3xl mx-auto mb-3">测</div>
+          <h2 class="text-2xl font-bold">Hoàn thành Trắc nghiệm Hán tự!</h2>
+          <p class="text-xs text-paper/50 mt-1 uppercase tracking-wider">HSK ${state.levelId} · ${state.quizType === "cloze" ? "Điền câu Hán tự" : "Nghe chọn Hán tự"} · ${quiz.items.length} câu</p>
+
+          <div class="my-6 py-5 border-y border-white/10 flex justify-around items-center">
+            <div>
+              <p class="text-xs text-paper/50">Điểm số</p>
+              <p class="text-3xl font-bold mt-1 text-gold">${quiz.correct} / ${quiz.items.length}</p>
+            </div>
+            <div class="h-10 w-px bg-white/10"></div>
+            <div>
+              <p class="text-xs text-paper/50">Độ chính xác</p>
+              <p class="text-3xl font-bold mt-1 text-emerald-400">${pct}%</p>
+            </div>
           </div>
-        </div>`;
-      els.quiz.querySelector(".topic-select")?.addEventListener("change", (e) => {
-        state.topicId = e.target.value;
-        startQuiz();
-        render();
-      });
+
+          <p class="text-sm font-medium ${evalColor} mb-6">${evalText}</p>
+
+          <div class="flex flex-col sm:flex-row gap-3 justify-center">
+            <button id="quiz-retry" class="flex-1 bg-vermillion/90 hover:bg-vermillion text-white rounded-xl px-5 py-3 text-sm font-semibold flex items-center justify-center gap-2 transition">
+              <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Làm lại lượt mới
+            </button>
+            ${
+              quiz.wrongList.length > 0
+                ? `<button id="quiz-review-wrong-btn" class="flex-1 glass border border-amber-500/40 hover:border-amber-400 text-amber-300 rounded-xl px-5 py-3 text-sm font-semibold flex items-center justify-center gap-2 transition">
+                    <i data-lucide="book-marked" class="w-4 h-4"></i> Ôn lại các câu sai (${quiz.wrongList.length})
+                  </button>`
+                : ""
+            }
+          </div>
+        </div>
+
+        ${
+          quiz.showReviewModal && quiz.wrongList.length > 0
+            ? `<div class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+                <div class="glass border border-white/20 rounded-3xl max-w-xl w-full p-6 max-h-[85vh] flex flex-col relative animate-fade-in shadow-2xl">
+                  <div class="flex items-center justify-between pb-4 border-b border-white/10">
+                    <div class="flex items-center gap-2">
+                      <div class="w-8 h-8 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+                        <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                      </div>
+                      <div>
+                        <h3 class="font-semibold text-base">Câu trắc nghiệm làm sai (${quiz.wrongList.length})</h3>
+                        <p class="text-xs text-paper/50">Xem lại đáp án và giải thích chi tiết</p>
+                      </div>
+                    </div>
+                    <button id="close-quiz-modal" class="p-2 rounded-xl text-paper/50 hover:text-paper hover:bg-white/10 transition">
+                      <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                  </div>
+
+                  <div class="overflow-y-auto space-y-3 py-4 flex-1 pr-1 custom-scroll">
+                    ${quiz.wrongList
+                      .map(
+                        (item) => `
+                        <div class="glass rounded-xl p-3 border border-white/5 hover:border-white/15 transition">
+                          <div class="flex items-start justify-between gap-3">
+                            <div class="flex-1 min-w-0">
+                              <p class="hanzi text-lg font-medium text-paper">${item.type === "cloze" ? highlightSentenceAnswer(item.fullCn, item.answer) : item.targetWord.hanzi}</p>
+                              <p class="text-xs text-gold mt-1">${item.sentencePinyin}</p>
+                              <p class="text-xs text-paper/70 mt-0.5">${item.sentenceVietnamese}</p>
+                              <div class="mt-2 text-xs text-emerald-400 font-medium">
+                                Đáp án đúng: <b class="hanzi text-gold text-sm ml-1">${item.answer}</b> ${item.targetWord.meaning ? `(${item.targetWord.meaning})` : ""}
+                              </div>
+                            </div>
+                            <button data-review-speak="${(item.type === "cloze" ? item.fullCn : item.targetWord.hanzi).replace(/"/g, "&quot;")}" class="w-9 h-9 rounded-full bg-white/5 hover:bg-gold/20 text-gold flex items-center justify-center shrink-0 transition" title="Nghe phát âm">
+                              <i data-lucide="volume-2" class="w-4 h-4"></i>
+                            </button>
+                          </div>
+                        </div>`
+                      )
+                      .join("")}
+                  </div>
+
+                  <div class="pt-4 border-t border-white/10 flex gap-3">
+                    <button id="quiz-retry-wrong-btn" class="flex-1 bg-amber-500/90 hover:bg-amber-500 text-black font-semibold rounded-xl py-2.5 text-sm flex items-center justify-center gap-2 transition">
+                      <i data-lucide="play" class="w-4 h-4"></i> Luyện lại các câu này
+                    </button>
+                    <button id="close-quiz-modal-btn" class="px-5 glass rounded-xl text-sm font-medium hover:bg-white/10 transition">
+                      Đóng
+                    </button>
+                  </div>
+                </div>
+              </div>`
+            : ""
+        }
+      `;
+
       document.getElementById("quiz-retry")?.addEventListener("click", () => {
         startQuiz();
-        render();
+        renderQuiz();
       });
+
+      document.getElementById("quiz-review-wrong-btn")?.addEventListener("click", () => {
+        quiz.showReviewModal = true;
+        renderQuiz();
+      });
+
+      document.getElementById("close-quiz-modal")?.addEventListener("click", () => {
+        quiz.showReviewModal = false;
+        renderQuiz();
+      });
+
+      document.getElementById("close-quiz-modal-btn")?.addEventListener("click", () => {
+        quiz.showReviewModal = false;
+        renderQuiz();
+      });
+
+      document.getElementById("quiz-retry-wrong-btn")?.addEventListener("click", () => {
+        const wrongItems = [...quiz.wrongList];
+        startQuiz(wrongItems);
+        renderQuiz();
+      });
+
+      els.quiz.querySelectorAll("[data-review-speak]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          speak(btn.dataset.reviewSpeak);
+        });
+      });
+
+      refreshIcons();
       return;
     }
 
+    // Màn hình làm bài (100% Chữ Hán)
     const q = quiz.items[quiz.index];
-    const quizPct = Math.round(((quiz.index + 1) / quiz.items.length) * 100);
+    const progressPct = Math.round(((quiz.index + 1) / quiz.items.length) * 100);
+
     els.quiz.innerHTML = `
-      <div class="max-w-xl mx-auto">
-        <div class="flex gap-2 mb-5">${topicSelect("flex-1")}</div>
+      <div class="max-w-2xl mx-auto">
+        <!-- Top bar: Bộ lọc chủ đề & Thanh chuyển đổi 2 hình thức thuần Hán tự -->
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div class="flex items-center gap-2">
+            ${topicSelect("text-xs py-1.5")}
+          </div>
+
+          <!-- Thanh chuyển đổi 2 hình thức thuần Hán tự -->
+          <div class="flex rounded-xl glass p-0.5 border border-white/10 text-xs">
+            <button data-quiz-type="cloze" class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${state.quizType === "cloze" ? "bg-white/15 text-white font-medium shadow-sm" : "text-paper/60 hover:text-paper"}">
+              <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+              <span>Điền câu Hán tự</span>
+            </button>
+            <button data-quiz-type="listen" class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${state.quizType === "listen" ? "bg-white/15 text-white font-medium shadow-sm" : "text-paper/60 hover:text-paper"}">
+              <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+              <span>Nghe chọn Hán tự</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Thanh tiến độ câu hỏi -->
         <div class="flex items-center justify-between text-xs text-paper/60 mb-2">
           <span>Câu ${quiz.index + 1} / ${quiz.items.length}</span>
           <span class="text-gold font-medium">${quiz.correct} câu đúng</span>
         </div>
-        <div class="progress-bar mb-4">
-          <span style="width: ${quizPct}%"></span>
+        <div class="progress-bar mb-5">
+          <span style="width: ${progressPct}%"></span>
         </div>
-        <div class="glass rounded-3xl p-6 mt-1">
-          <p class="text-sm text-gold/80">${q.label}</p>
-          <p class="hanzi text-5xl mt-4 ${q.mode === "meaning-hanzi" ? "text-2xl font-sans" : ""}">${q.prompt}</p>
-          ${q.mode !== "meaning-hanzi" ? `<button id="quiz-speak" class="mt-4 text-sm text-paper/50 flex items-center gap-1 hover:text-gold transition"><i data-lucide="volume-2" class="w-4 h-4"></i> Nghe</button>` : ""}
-          <div class="grid gap-2 mt-6">
+
+        <!-- Khung nội dung câu hỏi -->
+        <div class="glass rounded-3xl p-6 relative overflow-hidden">
+          <!-- Thanh trạng thái & Nút gợi ý nghĩa -->
+          <div class="flex items-center justify-between gap-2 pb-3 mb-2 border-b border-white/10">
+            <div class="flex items-center gap-2">
+              <span class="seal hanzi text-sm">测</span>
+              <span class="text-xs uppercase tracking-wider text-gold/80 font-medium">
+                ${q.type === "cloze" ? "Điền từ vào câu chữ Hán" : "Nghe âm thanh chọn chữ Hán"}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              ${
+                q.type === "cloze"
+                  ? `<button id="quiz-speak-btn" class="glass px-3 py-1 rounded-xl text-xs text-paper/70 hover:text-gold transition flex items-center gap-1.5" title="Phát âm câu">
+                      <i data-lucide="volume-2" class="w-3.5 h-3.5"></i> <span>Nghe câu</span>
+                    </button>`
+                  : ""
+              }
+              <button id="quiz-hint-btn" class="glass px-3 py-1 rounded-xl text-xs ${quiz.showHint ? "text-amber-300 border-amber-500/40 bg-amber-500/10" : "text-paper/70 hover:text-amber-300"} transition flex items-center gap-1.5" title="Gợi ý nghĩa nếu quá khó">
+                <i data-lucide="lightbulb" class="w-3.5 h-3.5 text-amber-300"></i>
+                <span>${quiz.showHint ? "Ẩn gợi ý" : "💡 Gợi ý nghĩa"}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Khung gợi ý nghĩa (Chỉ hiện khi người dùng bấm nút) -->
+          ${
+            quiz.showHint
+              ? `<div class="mb-4 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 flex items-start gap-2 animate-fade-in">
+                  <i data-lucide="info" class="w-4 h-4 shrink-0 text-amber-400 mt-0.5"></i>
+                  <div>
+                    <span class="font-semibold text-amber-300">Gợi ý nghĩa tiếng Việt:</span>
+                    <p class="mt-0.5 text-paper/90 leading-relaxed">${q.type === "cloze" ? q.sentenceVietnamese : q.targetWord.meaning}</p>
+                  </div>
+                </div>`
+              : ""
+          }
+
+          <!-- Câu hỏi trung tâm: 100% THUẦN CHỮ HÁN -->
+          ${
+            q.type === "cloze"
+              ? `<div class="py-6 px-3 text-center">
+                  <div class="hanzi text-2xl sm:text-3xl font-medium leading-relaxed text-paper">
+                    ${renderClozePrompt(q.promptCn)}
+                  </div>
+                </div>`
+              : `<div class="py-6 flex flex-col items-center justify-center text-center">
+                  <button id="quiz-speaker-main-btn" class="listening-speaker-btn hover:scale-105 active:scale-95 transition" title="Bấm để nghe phát âm">
+                    <i data-lucide="volume-2" class="w-12 h-12 text-gold"></i>
+                  </button>
+                  <p class="text-xs text-paper/50 mt-3">Bấm vào loa để nghe lại âm thanh</p>
+                </div>`
+          }
+
+          <!-- 4 Nút đáp án: 100% THUẦN CHỮ HÁN -->
+          <div class="grid sm:grid-cols-2 gap-3 mt-4">
             ${q.choices
-              .map(
-                (choice) =>
-                  `<button data-choice="${choice.replace(/"/g, "&quot;")}" class="choice-btn glass rounded-xl px-4 py-3 text-left">${choice}</button>`
-              )
+              .map((choice, idx) => {
+                const letter = ["A", "B", "C", "D"][idx];
+                let btnClass = "hanzi-choice-btn";
+                if (quiz.answered) {
+                  if (choice.hanzi === q.answer) {
+                    btnClass += quiz.isCorrect ? " is-correct" : " flash-correct";
+                  } else if (choice.hanzi === quiz.selectedHanzi && !quiz.isCorrect) {
+                    btnClass += " is-wrong";
+                  }
+                }
+                return `
+                  <button data-quiz-choice="${choice.hanzi.replace(/"/g, "&quot;")}" class="${btnClass}" ${quiz.answered ? "disabled" : ""}>
+                    <span class="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-bold shrink-0 text-paper/80">${letter}</span>
+                    <div class="flex-1 min-w-0">
+                      <span class="hanzi text-2xl sm:text-3xl font-medium tracking-wide text-paper">${choice.hanzi}</span>
+                      ${
+                        quiz.answered
+                          ? `<div class="text-[11px] text-paper/50 mt-0.5 flex items-center gap-1.5 animate-fade-in">
+                              <span class="text-gold/80">${choice.pinyin}</span> · <span>${choice.meaning}</span>
+                            </div>`
+                          : ""
+                      }
+                    </div>
+                  </button>
+                `;
+              })
               .join("")}
           </div>
+
+          <!-- KHUNG GIẢI THÍCH (Chỉ mở khóa sau khi bấm chọn đáp án) -->
+          ${
+            quiz.answered
+              ? `<div class="mt-6 pt-5 border-t border-white/10 animate-fade-in">
+                  <div class="rounded-2xl p-4 border transition ${quiz.isCorrect ? "border-emerald-500/50 bg-emerald-500/10" : "border-vermillion/50 bg-vermillion/10"}">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1.5">
+                          <i data-lucide="${quiz.isCorrect ? "check-circle" : "alert-circle"}" class="w-5 h-5 shrink-0 ${quiz.isCorrect ? "text-emerald-400" : "text-vermillion"}"></i>
+                          <span class="text-sm font-semibold ${quiz.isCorrect ? "text-emerald-400" : "text-vermillion"}">
+                            ${quiz.isCorrect ? "Chính xác!" : `Chưa đúng! Đáp án đúng: ${q.answer}`}
+                          </span>
+                        </div>
+
+                        ${
+                          q.type === "cloze"
+                            ? `<div class="mt-2 text-left">
+                                <div class="hanzi text-xl font-medium text-paper">
+                                  ${highlightSentenceAnswer(q.fullCn, q.answer)}
+                                </div>
+                                <p class="text-xs text-gold font-medium mt-1">${q.sentencePinyin}</p>
+                                <p class="text-xs text-paper/80 mt-0.5">${q.sentenceVietnamese}</p>
+
+                                <div class="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-xs">
+                                  <div>
+                                    <span class="text-paper/50">Từ cần điền:</span>
+                                    <b class="hanzi text-gold text-base ml-1.5">${q.targetWord.hanzi}</b>
+                                    <span class="text-paper/60 ml-1">(${q.targetWord.pinyin})</span>
+                                    <span class="text-paper/90 ml-1.5">— ${q.targetWord.meaning}</span>
+                                  </div>
+                                  <button id="quiz-speak-full" class="text-gold hover:text-gold/80 flex items-center gap-1 transition" title="Nghe câu hoàn chỉnh">
+                                    <i data-lucide="volume-2" class="w-4 h-4"></i> Nghe câu
+                                  </button>
+                                </div>
+                              </div>`
+                            : `<div class="mt-2 text-left flex items-center justify-between gap-4">
+                                <div>
+                                  <div class="flex items-baseline gap-2">
+                                    <span class="hanzi text-3xl font-bold text-gold">${q.targetWord.hanzi}</span>
+                                    <span class="text-sm font-semibold text-gold/90">${q.targetWord.pinyin}</span>
+                                  </div>
+                                  <p class="text-xs text-paper/80 mt-1">${q.targetWord.meaning}</p>
+                                </div>
+                                <button id="quiz-speak-full" class="w-10 h-10 rounded-full bg-white/10 hover:bg-gold/20 text-gold flex items-center justify-center shrink-0 transition" title="Nghe lại">
+                                  <i data-lucide="volume-2" class="w-5 h-5"></i>
+                                </button>
+                              </div>`
+                        }
+                      </div>
+                    </div>
+
+                    <!-- Nút Câu tiếp theo -->
+                    <button id="quiz-next-btn" class="w-full mt-4 bg-vermillion hover:bg-vermillion/90 text-white font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-vermillion/30 transition">
+                      <span>${quiz.index + 1 >= quiz.items.length ? "Hoàn thành & Xem kết quả" : "Câu tiếp theo"}</span>
+                      <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                    </button>
+                  </div>
+                </div>`
+              : ""
+          }
         </div>
       </div>`;
 
+    // Sự kiện chuyển đổi hình thức trắc nghiệm
+    els.quiz.querySelectorAll("[data-quiz-type]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.quizType = btn.dataset.quizType;
+        startQuiz();
+        renderQuiz();
+      });
+    });
+
+    // Sự kiện đổi chủ đề
     els.quiz.querySelector(".topic-select")?.addEventListener("change", (e) => {
       state.topicId = e.target.value;
       startQuiz();
-      render();
+      renderQuiz();
     });
-    document.getElementById("quiz-speak")?.addEventListener("click", () => speak(q.word.hanzi));
-    els.quiz.querySelectorAll("[data-choice]").forEach((btn) => {
+
+    // Sự kiện gợi ý nghĩa
+    document.getElementById("quiz-hint-btn")?.addEventListener("click", () => {
+      quiz.showHint = !quiz.showHint;
+      renderQuiz();
+    });
+
+    // Sự kiện phát âm câu hỏi
+    document.getElementById("quiz-speak-btn")?.addEventListener("click", () => {
+      speak(q.fullCn || q.targetWord.hanzi);
+    });
+
+    document.getElementById("quiz-speaker-main-btn")?.addEventListener("click", () => {
+      speak(q.targetWord.hanzi);
+    });
+
+    document.getElementById("quiz-speak-full")?.addEventListener("click", () => {
+      speak(q.type === "cloze" ? q.fullCn : q.targetWord.hanzi);
+    });
+
+    // Sự kiện chọn đáp án
+    els.quiz.querySelectorAll("[data-quiz-choice]").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (quiz.answered) return;
         quiz.answered = true;
-        const picked = btn.dataset.choice;
+        const picked = btn.dataset.quizChoice;
+        quiz.selectedHanzi = picked;
         const ok = picked === q.answer;
-        if (ok) quiz.correct += 1;
-        els.quiz.querySelectorAll("[data-choice]").forEach((b) => {
-          if (b.dataset.choice === q.answer) b.classList.add("is-correct");
-          if (b === btn && !ok) b.classList.add("is-wrong");
-          b.disabled = true;
-        });
-        setTimeout(() => {
-          if (quiz.index + 1 >= quiz.items.length) {
-            quiz.done = true;
-            ProgressStore.recordQuiz(state.levelId, quiz.correct, quiz.items.length);
-          } else {
-            quiz.index += 1;
-            quiz.answered = false;
-          }
-          render();
-        }, 750);
+        quiz.isCorrect = ok;
+
+        if (ok) {
+          quiz.correct += 1;
+        } else {
+          quiz.wrongList.push(q);
+        }
+
+        // Tự động phát âm từ/câu khi chọn
+        speak(q.type === "cloze" ? q.fullCn : q.targetWord.hanzi);
+        renderQuiz();
       });
     });
+
+    // Sự kiện chuyển câu
+    document.getElementById("quiz-next-btn")?.addEventListener("click", () => {
+      if (quiz.index + 1 >= quiz.items.length) {
+        quiz.done = true;
+        ProgressStore.recordQuiz(state.levelId, quiz.correct, quiz.items.length);
+        renderQuiz();
+      } else {
+        quiz.index += 1;
+        quiz.answered = false;
+        quiz.selectedHanzi = null;
+        quiz.isCorrect = null;
+        quiz.showHint = false;
+        renderQuiz();
+        if (quiz.items[quiz.index].type === "listen") {
+          speak(quiz.items[quiz.index].targetWord.hanzi);
+        }
+      }
+    });
+
+    refreshIcons();
+  }
+
+  // ================= MODULE: LUYỆN NGHE PHẢN XẠ (LISTENING QUIZ) =================
+  function startListening(customPool = null) {
+    const defaultPool = DataStore.getVocab({
+      level: state.levelId,
+      topicId: state.topicId === "all" ? undefined : state.topicId,
+    });
+    const fullLevelPool = DataStore.getVocab({ level: state.levelId });
+    const sourcePool = customPool || (defaultPool.length >= 4 ? defaultPool : fullLevelPool);
+    const count = Math.min(20, sourcePool.length);
+    const selected = shuffle(sourcePool).slice(0, count);
+
+    state.listening = {
+      items: selected.map((word) => makeListeningQuestion(word, fullLevelPool)),
+      index: 0,
+      correct: 0,
+      answered: false,
+      selectedWordId: null,
+      isCorrect: null,
+      autoTimer: null,
+      speed: 1.0,
+      mode: "meaning", // "meaning" | "hanzi"
+      isPlaying: false,
+      wrongList: [],
+      done: false,
+      showReviewModal: false,
+    };
+  }
+
+  function makeListeningQuestion(word, pool) {
+    const distractorsPool = pool.filter(
+      (w) => w.id !== word.id && w.hanzi !== word.hanzi && w.meaning !== word.meaning
+    );
+    const distractors = shuffle(distractorsPool).slice(0, 3);
+    const choiceWords = shuffle([word, ...distractors]);
+    return {
+      word,
+      choiceWords,
+    };
+  }
+
+  function playCurrentListeningWord(rateOverride = null) {
+    if (!state.listening || state.listening.done) return;
+    const q = state.listening.items[state.listening.index];
+    if (!q) return;
+    const rate = rateOverride != null ? rateOverride : (state.listening.speed || 1.0);
+    state.listening.isPlaying = true;
+    updateListeningSpeakerUi(true);
+    speak(q.word.hanzi, rate, () => {
+      if (state.listening) {
+        state.listening.isPlaying = false;
+        updateListeningSpeakerUi(false);
+      }
+    });
+  }
+
+  function updateListeningSpeakerUi(isPlaying) {
+    const btn = document.getElementById("listening-speaker-btn");
+    const wave = document.getElementById("listening-sound-bars");
+    if (btn) btn.classList.toggle("is-playing", isPlaying);
+    if (wave) wave.classList.toggle("opacity-0", !isPlaying);
+  }
+
+  function advanceListening() {
+    if (!state.listening) return;
+    if (state.listening.autoTimer) {
+      clearTimeout(state.listening.autoTimer);
+      state.listening.autoTimer = null;
+    }
+    const lst = state.listening;
+    if (lst.index + 1 >= lst.items.length) {
+      lst.done = true;
+      ProgressStore.recordListening(state.levelId, lst.correct, lst.items.length);
+      renderListening();
+    } else {
+      lst.index += 1;
+      lst.answered = false;
+      lst.selectedWordId = null;
+      lst.isCorrect = null;
+      renderListening();
+      playCurrentListeningWord();
+    }
+  }
+
+  function renderListening() {
+    els.crumb.textContent = "Luyện nghe";
+    const topic = DataStore.getTopic(state.topicId);
+    els.title.textContent = topic ? `Luyện nghe · ${topic.name}` : "Luyện nghe phản xạ";
+
+    if (!state.listening) {
+      startListening();
+      playCurrentListeningWord();
+    }
+
+    const lst = state.listening;
+    if (!lst.items.length) {
+      els.listening.innerHTML = `
+        <div class="max-w-md mx-auto glass rounded-3xl p-8 text-center">
+          <p class="text-paper/60">Không đủ từ vựng để tạo bài luyện nghe cho cấp độ này.</p>
+        </div>`;
+      return;
+    }
+
+    // Màn hình tổng kết khi hoàn thành 20/20 câu
+    if (lst.done) {
+      const pct = Math.round((lst.correct / lst.items.length) * 100);
+      let evalText = "Cần rèn luyện thêm phản xạ nghe.";
+      let evalColor = "text-vermillion";
+      if (pct >= 90) {
+        evalText = "Phản xạ xuất sắc! Khả năng nghe vượt trội!";
+        evalColor = "text-emerald-400";
+      } else if (pct >= 70) {
+        evalText = "Khá tốt! Hãy duy trì luyện tập đều đặn!";
+        evalColor = "text-gold";
+      } else if (pct >= 50) {
+        evalText = "Đạt yêu cầu cơ bản, cần tăng tốc độ nhận diện âm.";
+        evalColor = "text-amber-300";
+      }
+
+      els.listening.innerHTML = `
+        <div class="max-w-xl mx-auto glass rounded-3xl p-8 text-center relative overflow-hidden">
+          <div class="seal hanzi text-3xl mx-auto mb-3">听</div>
+          <h2 class="text-2xl font-bold">Hoàn thành bài luyện nghe!</h2>
+          <p class="text-xs text-paper/50 mt-1 uppercase tracking-wider">HSK ${state.levelId} · ${lst.items.length} câu phản xạ</p>
+
+          <div class="my-6 py-5 border-y border-white/10 flex justify-around items-center">
+            <div>
+              <p class="text-xs text-paper/50">Điểm số</p>
+              <p class="text-3xl font-bold mt-1 text-gold">${lst.correct} / ${lst.items.length}</p>
+            </div>
+            <div class="h-10 w-px bg-white/10"></div>
+            <div>
+              <p class="text-xs text-paper/50">Độ chính xác</p>
+              <p class="text-3xl font-bold mt-1 text-sky-400">${pct}%</p>
+            </div>
+          </div>
+
+          <p class="text-sm font-medium ${evalColor} mb-6">${evalText}</p>
+
+          <div class="flex flex-col sm:flex-row gap-3 justify-center">
+            <button id="listening-retry" class="flex-1 bg-vermillion/90 hover:bg-vermillion text-white rounded-xl px-5 py-3 text-sm font-semibold flex items-center justify-center gap-2 transition">
+              <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Luyện nghe lượt mới
+            </button>
+            ${
+              lst.wrongList.length > 0
+                ? `<button id="listening-review-wrong-btn" class="flex-1 glass border border-amber-500/40 hover:border-amber-400 text-amber-300 rounded-xl px-5 py-3 text-sm font-semibold flex items-center justify-center gap-2 transition">
+                    <i data-lucide="book-marked" class="w-4 h-4"></i> Ôn lại các từ nghe sai (${lst.wrongList.length})
+                  </button>`
+                : ""
+            }
+          </div>
+        </div>
+
+        ${
+          lst.showReviewModal && lst.wrongList.length > 0
+            ? `<div class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+                <div class="glass border border-white/20 rounded-3xl max-w-xl w-full p-6 max-h-[85vh] flex flex-col relative animate-fade-in shadow-2xl">
+                  <div class="flex items-center justify-between pb-4 border-b border-white/10">
+                    <div class="flex items-center gap-2">
+                      <div class="w-8 h-8 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+                        <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                      </div>
+                      <div>
+                        <h3 class="font-semibold text-base">Từ vựng nghe sai (${lst.wrongList.length})</h3>
+                        <p class="text-xs text-paper/50">Bấm loa để nghe lại hoặc luyện tập riêng các từ này</p>
+                      </div>
+                    </div>
+                    <button id="close-listening-modal" class="p-2 rounded-xl text-paper/50 hover:text-paper hover:bg-white/10 transition">
+                      <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                  </div>
+
+                  <div class="overflow-y-auto space-y-2 py-4 flex-1 pr-1 custom-scroll">
+                    ${lst.wrongList
+                      .map(
+                        (item) => `
+                        <div class="glass rounded-xl p-3 flex items-center justify-between gap-3 border border-white/5 hover:border-white/15 transition">
+                          <div class="flex items-center gap-3">
+                            <button data-review-speak="${item.word.hanzi}" class="w-9 h-9 rounded-full bg-white/5 hover:bg-gold/20 text-gold flex items-center justify-center shrink-0 transition" title="Nghe phát âm">
+                              <i data-lucide="volume-2" class="w-4 h-4"></i>
+                            </button>
+                            <div>
+                              <div class="flex items-baseline gap-2">
+                                <span class="hanzi text-lg font-bold">${item.word.hanzi}</span>
+                                <span class="text-xs text-gold">${item.word.pinyin}</span>
+                              </div>
+                              <p class="text-xs text-paper/70 mt-0.5">${item.word.meaning}</p>
+                            </div>
+                          </div>
+                          <span class="text-[11px] px-2 py-1 rounded-md bg-vermillion/20 text-vermillion shrink-0">Nghe sai</span>
+                        </div>`
+                      )
+                      .join("")}
+                  </div>
+
+                  <div class="pt-4 border-t border-white/10 flex gap-3">
+                    <button id="listening-retry-wrong-btn" class="flex-1 bg-amber-500/90 hover:bg-amber-500 text-black font-semibold rounded-xl py-2.5 text-sm flex items-center justify-center gap-2 transition">
+                      <i data-lucide="play" class="w-4 h-4"></i> Luyện nghe lại nhóm từ này
+                    </button>
+                    <button id="close-listening-modal-btn" class="px-5 glass rounded-xl text-sm font-medium hover:bg-white/10 transition">
+                      Đóng
+                    </button>
+                  </div>
+                </div>
+              </div>`
+            : ""
+        }
+      `;
+
+      document.getElementById("listening-retry")?.addEventListener("click", () => {
+        startListening();
+        renderListening();
+        playCurrentListeningWord();
+      });
+
+      document.getElementById("listening-review-wrong-btn")?.addEventListener("click", () => {
+        lst.showReviewModal = true;
+        renderListening();
+      });
+
+      document.getElementById("close-listening-modal")?.addEventListener("click", () => {
+        lst.showReviewModal = false;
+        renderListening();
+      });
+
+      document.getElementById("close-listening-modal-btn")?.addEventListener("click", () => {
+        lst.showReviewModal = false;
+        renderListening();
+      });
+
+      document.getElementById("listening-retry-wrong-btn")?.addEventListener("click", () => {
+        const wrongWords = lst.wrongList.map((item) => item.word);
+        startListening(wrongWords);
+        renderListening();
+        playCurrentListeningWord();
+      });
+
+      els.listening.querySelectorAll("[data-review-speak]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          speak(btn.dataset.reviewSpeak, lst.speed);
+        });
+      });
+
+      refreshIcons();
+      return;
+    }
+
+    // Màn hình làm bài (Audio First)
+    const q = lst.items[lst.index];
+    const progressPct = Math.round(((lst.index + 1) / lst.items.length) * 100);
+
+    els.listening.innerHTML = `
+      <div class="max-w-xl mx-auto">
+        <!-- Thanh trạng thái & cài đặt -->
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div class="flex items-center gap-2">
+            ${topicSelect("text-xs py-1.5")}
+          </div>
+
+          <div class="flex items-center gap-2">
+            <!-- Chọn chế độ đáp án -->
+            <div class="flex rounded-xl glass p-0.5 border border-white/10 text-xs">
+              <button data-listen-mode="meaning" class="px-2.5 py-1 rounded-lg transition ${lst.mode === "meaning" ? "bg-white/15 text-white font-medium" : "text-paper/60 hover:text-paper"}">
+                Nghĩa Việt
+              </button>
+              <button data-listen-mode="hanzi" class="px-2.5 py-1 rounded-lg transition ${lst.mode === "hanzi" ? "bg-white/15 text-white font-medium" : "text-paper/60 hover:text-paper"}">
+                Hán tự
+              </button>
+            </div>
+
+            <!-- Tốc độ đọc -->
+            <div class="flex items-center gap-1">
+              <button data-listen-speed="1.0" class="speed-btn ${lst.speed === 1.0 ? "is-active" : ""}">1.0x</button>
+              <button data-listen-speed="0.75" class="speed-btn ${lst.speed === 0.75 ? "is-active" : ""}">0.75x</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Thanh tiến độ câu hỏi -->
+        <div class="flex items-center justify-between text-xs text-paper/60 mb-2">
+          <span>Câu ${lst.index + 1} / ${lst.items.length}</span>
+          <span class="text-emerald-400 font-medium">${lst.correct} đúng</span>
+        </div>
+        <div class="progress-bar mb-6">
+          <span style="width: ${progressPct}%"></span>
+        </div>
+
+        <!-- Khung âm thanh trung tâm (Audio First) -->
+        <div class="glass rounded-3xl p-6 text-center mb-5 flex flex-col items-center justify-center relative overflow-hidden">
+          <button id="listening-speaker-btn" class="listening-speaker-btn ${lst.isPlaying ? "is-playing" : ""}" title="Bấm để nghe phát âm">
+            <i data-lucide="volume-2" class="w-12 h-12 text-gold"></i>
+          </button>
+
+          <div class="mt-3 flex flex-col items-center gap-1">
+            <span class="text-xs text-paper/60">Bấm vào loa để nghe lại âm thanh</span>
+            <div id="listening-sound-bars" class="sound-bars ${lst.isPlaying ? "" : "opacity-0"} transition-opacity">
+              <span class="sound-bar"></span>
+              <span class="sound-bar"></span>
+              <span class="sound-bar"></span>
+              <span class="sound-bar"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Khung hiển thị kết quả sau khi trả lời -->
+        <div class="mb-5 min-h-[76px]">
+          ${
+            !lst.answered
+              ? `<div class="h-[76px] flex items-center justify-center text-paper/40 text-xs border border-dashed border-white/10 rounded-2xl bg-white/[0.02] px-4 text-center">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="headphones" class="w-4 h-4 text-sky-400"></i>
+                    <span>Chữ Hán & Pinyin được ẩn ban đầu. Lắng nghe và chọn đáp án đúng bên dưới!</span>
+                  </div>
+                </div>`
+              : `<div class="rounded-2xl p-4 border transition ${lst.isCorrect ? "border-emerald-500/50 bg-emerald-500/10" : "border-vermillion/50 bg-vermillion/10"} flex items-center justify-between gap-3 animate-fade-in">
+                  <div class="flex items-center gap-3">
+                    <button id="listening-revealed-speak" class="w-10 h-10 rounded-full bg-white/10 hover:bg-gold/20 text-gold flex items-center justify-center shrink-0 transition" title="Nghe lại">
+                      <i data-lucide="volume-2" class="w-5 h-5"></i>
+                    </button>
+                    <div>
+                      <div class="flex items-baseline gap-2">
+                        <span class="hanzi text-2xl font-bold text-paper">${q.word.hanzi}</span>
+                        <span class="text-sm font-semibold text-gold">${q.word.pinyin}</span>
+                      </div>
+                      <p class="text-xs text-paper/80 mt-0.5">${q.word.meaning}</p>
+                    </div>
+                  </div>
+                  ${
+                    !lst.isCorrect
+                      ? `<button id="listening-next-btn" class="bg-vermillion hover:bg-vermillion/90 text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-lg shadow-vermillion/30">
+                          <span>Câu tiếp theo</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                        </button>`
+                      : `<div class="flex items-center gap-1.5 text-emerald-400 text-xs font-semibold shrink-0">
+                          <i data-lucide="check-circle" class="w-4 h-4"></i>
+                          <span>Chính xác (+1)</span>
+                        </div>`
+                  }
+                </div>`
+          }
+        </div>
+
+        <!-- 4 thẻ lựa chọn đáp án -->
+        <div class="grid sm:grid-cols-2 gap-3">
+          ${q.choiceWords
+            .map((cw, idx) => {
+              const letter = ["A", "B", "C", "D"][idx];
+              let btnClass = "listen-choice-btn";
+              if (lst.answered) {
+                if (cw.id === q.word.id) {
+                  btnClass += lst.isCorrect ? " is-correct" : " flash-correct";
+                } else if (cw.id === lst.selectedWordId && !lst.isCorrect) {
+                  btnClass += " is-wrong";
+                }
+              }
+
+              const content =
+                lst.mode === "meaning"
+                  ? `<span class="text-sm font-medium leading-relaxed">${cw.meaning}</span>`
+                  : `<span class="hanzi text-xl font-medium">${cw.hanzi}</span>`;
+
+              return `<button data-listen-choice="${cw.id}" class="${btnClass}" ${lst.answered ? "disabled" : ""}>
+                <span class="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center text-xs font-bold shrink-0 text-paper/80">${letter}</span>
+                <div class="flex-1 min-w-0">${content}</div>
+              </button>`;
+            })
+            .join("")}
+        </div>
+      </div>
+    `;
+
+    // Sự kiện chọn đáp án
+    els.listening.querySelectorAll("[data-listen-choice]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (lst.answered) return;
+        const pickedId = btn.dataset.listenChoice;
+        lst.answered = true;
+        lst.selectedWordId = pickedId;
+        const isOk = pickedId === q.word.id;
+        lst.isCorrect = isOk;
+
+        if (isOk) {
+          lst.correct += 1;
+          renderListening();
+          lst.autoTimer = setTimeout(advanceListening, 1200);
+        } else {
+          lst.wrongList.push({ word: q.word, selectedId: pickedId });
+          renderListening();
+        }
+      });
+    });
+
+    // Sự kiện nút loa trung tâm
+    document.getElementById("listening-speaker-btn")?.addEventListener("click", () => {
+      playCurrentListeningWord();
+    });
+
+    // Sự kiện nút phát âm lại trên thẻ revealed
+    document.getElementById("listening-revealed-speak")?.addEventListener("click", () => {
+      playCurrentListeningWord();
+    });
+
+    // Sự kiện chuyển câu khi chọn sai
+    document.getElementById("listening-next-btn")?.addEventListener("click", () => {
+      advanceListening();
+    });
+
+    // Sự kiện thay đổi tốc độ phát
+    els.listening.querySelectorAll("[data-listen-speed]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const speed = parseFloat(btn.dataset.listenSpeed);
+        lst.speed = speed;
+        renderListening();
+        playCurrentListeningWord(speed);
+      });
+    });
+
+    // Sự kiện đổi chế độ hiển thị (Nghĩa Việt / Hán tự)
+    els.listening.querySelectorAll("[data-listen-mode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        lst.mode = btn.dataset.listenMode;
+        renderListening();
+      });
+    });
+
+    // Sự kiện đổi topic
+    els.listening.querySelector(".topic-select")?.addEventListener("change", (e) => {
+      state.topicId = e.target.value;
+      startListening();
+      renderListening();
+      playCurrentListeningWord();
+    });
+
+    refreshIcons();
   }
 
   // ================= MODULE 3: LUYỆN ĐẶT CÂU (SENTENCE BUILDING TEST) =================
@@ -911,6 +1815,445 @@
         speak(btn.dataset.speakText);
       });
     });
+  }
+
+  // ================= MODULE: LUYỆN ĐỌC HIỂU (HSK READING) =================
+  function initReading(typeFilter = null) {
+    if (typeFilter) {
+      if (state.reading) state.reading.typeFilter = typeFilter;
+    }
+    const filter = (state.reading && state.reading.typeFilter) || "all";
+    const passages = DataStore.getReadings({
+      level: state.levelId,
+      type: filter === "all" ? undefined : filter,
+    });
+
+    state.reading = {
+      typeFilter: filter,
+      passages: passages,
+      index: 0,
+      showPinyin: false,
+      userClozeAnswers: {},
+      activeBlank: "1",
+      userQaSelection: null,
+      checked: false,
+      isCorrect: null,
+    };
+    setupCurrentReading();
+  }
+
+  function setupCurrentReading() {
+    if (!state.reading || !state.reading.passages.length) return;
+    const r = state.reading.passages[state.reading.index];
+    state.reading.userClozeAnswers = {};
+    state.reading.activeBlank = "1";
+    state.reading.userQaSelection = null;
+    state.reading.checked = false;
+    state.reading.isCorrect = null;
+    state.reading.showPinyin = false;
+  }
+
+  function renderClozePassageText(passage, userAnswers, activeBlank, checked, answers) {
+    return passage.replace(/\[(\d+)\]/g, (match, num) => {
+      const filled = userAnswers[num];
+      const isActive = activeBlank === num && !checked;
+      let statusClass = "";
+      if (checked) {
+        const isOk = filled === answers[num];
+        statusClass = isOk ? "slot-correct" : "slot-wrong";
+      }
+      return `<span class="cloze-slot ${isActive ? "is-active" : ""} ${filled ? "is-filled" : ""} ${statusClass}" data-blank-id="${num}" title="${filled ? "Bấm để tháo từ" : "Bấm để chọn ô điền"}">
+        <span class="text-xs text-gold/80 font-mono mr-0.5">[${num}]</span>
+        <span class="hanzi text-xl">${filled || "____"}</span>
+      </span>`;
+    });
+  }
+
+  function renderReading() {
+    els.crumb.textContent = "Luyện đọc hiểu";
+    els.title.textContent = `${currentLevel()?.name || "HSK"} · Đọc hiểu & Điền từ`;
+
+    if (!state.reading) initReading();
+
+    const readingState = state.reading;
+    const list = readingState.passages;
+
+    if (!list.length) {
+      els.reading.innerHTML = `
+        <div class="max-w-md mx-auto glass rounded-3xl p-8 text-center">
+          <p class="text-paper/60">Chưa có bài đọc nào cho bộ lọc này ở cấp độ hiện tại.</p>
+          <button id="reading-reset-filter" class="mt-4 px-4 py-2 bg-vermillion rounded-xl text-xs font-semibold">Xem tất cả bài đọc</button>
+        </div>
+      `;
+      document.getElementById("reading-reset-filter")?.addEventListener("click", () => {
+        initReading("all");
+        renderReading();
+      });
+      return;
+    }
+
+    const r = list[readingState.index];
+    const isDone = ProgressStore.isReadingDone(state.levelId, r.id);
+
+    // Tính tổng số bài từng loại
+    const allPassages = DataStore.getReadings({ level: state.levelId });
+    const countAll = allPassages.length;
+    const countCloze = allPassages.filter((x) => x.type === "cloze").length;
+    const countQa = allPassages.filter((x) => x.type === "qa").length;
+
+    // Chuẩn bị văn bản phát âm sạch
+    let speechPassage = r.passage;
+    if (r.type === "cloze" && r.answers) {
+      speechPassage = r.passage.replace(/\[(\d+)\]/g, (m, k) => r.answers[k] || "");
+    }
+
+    els.reading.innerHTML = `
+      <div class="max-w-3xl mx-auto space-y-5">
+        <!-- Thanh chuyển đổi bộ lọc dạng bài đọc & Tiến độ -->
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex rounded-xl glass p-0.5 border border-white/10 text-xs">
+            <button data-reading-filter="all" class="px-3 py-1.5 rounded-lg transition ${readingState.typeFilter === "all" ? "bg-white/15 text-white font-medium shadow-sm" : "text-paper/60 hover:text-paper"}">
+              Tất cả (${countAll})
+            </button>
+            <button data-reading-filter="cloze" class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${readingState.typeFilter === "cloze" ? "bg-white/15 text-white font-medium shadow-sm" : "text-paper/60 hover:text-paper"}">
+              <i data-lucide="edit-3" class="w-3.5 h-3.5"></i> Điền từ (${countCloze})
+            </button>
+            <button data-reading-filter="qa" class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition ${readingState.typeFilter === "qa" ? "bg-white/15 text-white font-medium shadow-sm" : "text-paper/60 hover:text-paper"}">
+              <i data-lucide="help-circle" class="w-3.5 h-3.5"></i> Đọc hiểu (${countQa})
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2 text-xs">
+            ${
+              isDone
+                ? `<span class="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 font-medium">
+                    <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Đã hoàn thành
+                  </span>`
+                : ""
+            }
+            <span class="text-paper/60 font-medium">Bài ${readingState.index + 1} / ${list.length}</span>
+          </div>
+        </div>
+
+        <!-- Khung hiển thị bài đọc chính -->
+        <article class="glass rounded-3xl p-6 sm:p-8 relative overflow-hidden border border-white/10">
+          <!-- Thanh công cụ hỗ trợ ngay trên đoạn văn -->
+          <div class="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-white/10">
+            <div class="flex items-center gap-2">
+              <span class="seal hanzi text-sm">读</span>
+              <div>
+                <h3 class="font-bold text-base text-paper">${r.title}</h3>
+                <span class="text-[11px] text-paper/50 uppercase tracking-wider">
+                  ${r.type === "cloze" ? "选词填空 · Điền từ vào đoạn văn" : "阅读理解 · Đọc hiểu trả lời câu hỏi"}
+                </span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button id="reading-speak-btn" class="glass px-3 py-1.5 rounded-xl text-xs text-paper/80 hover:text-gold transition flex items-center gap-1.5" title="Nghe phát âm toàn bài">
+                <i data-lucide="volume-2" class="w-3.5 h-3.5 text-gold"></i>
+                <span>🔊 Nghe đoạn văn</span>
+              </button>
+
+              <button id="reading-toggle-pinyin-btn" class="glass px-3 py-1.5 rounded-xl text-xs ${readingState.showPinyin ? "text-gold border-gold/40 bg-gold/10" : "text-paper/70 hover:text-paper"} transition flex items-center gap-1.5">
+                <i data-lucide="languages" class="w-3.5 h-3.5"></i>
+                <span>${readingState.showPinyin ? "Ẩn Pinyin" : "Hiện Pinyin"}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Đoạn văn chữ Hán (Cỡ lớn 1.35rem, giãn dòng thoáng) -->
+          <div class="reading-passage-box p-2 select-text">
+            ${
+              r.type === "cloze"
+                ? renderClozePassageText(r.passage, readingState.userClozeAnswers, readingState.activeBlank, readingState.checked, r.answers)
+                : r.passage
+            }
+          </div>
+
+          <!-- Khung Pinyin (khi người dùng bấm Hiện Pinyin) -->
+          ${
+            readingState.showPinyin
+              ? `<div class="mt-4 p-4 rounded-2xl bg-white/[0.03] border border-white/10 text-xs sm:text-sm text-gold leading-relaxed font-mono animate-fade-in">
+                  <div class="text-[10px] text-paper/40 uppercase tracking-wider mb-1 font-sans">Phiên âm Pinyin:</div>
+                  ${r.pinyin}
+                </div>`
+              : ""
+          }
+
+          <!-- PHẦN TƯƠNG TÁC THEO TỪNG DẠNG BÀI TẬP -->
+          ${
+            r.type === "cloze"
+              ? `<!-- Kho từ vựng gợi ý (Word Bank) -->
+                <div class="mt-6 pt-5 border-t border-white/10">
+                  <div class="flex items-center justify-between text-xs text-paper/70 mb-2.5">
+                    <span class="font-medium text-gold/90 flex items-center gap-1.5">
+                      <i data-lucide="layers" class="w-3.5 h-3.5"></i> Kho từ vựng (Word Bank):
+                    </span>
+                    <span class="text-paper/40 text-[11px]">Bấm ô trống rồi bấm từ để điền</span>
+                  </div>
+
+                  <div class="flex flex-wrap gap-2.5">
+                    ${r.wordBank
+                      .map((word) => {
+                        const isUsed = Object.values(readingState.userClozeAnswers).includes(word);
+                        return `
+                          <button data-word-chip="${word}" class="reading-word-chip ${isUsed ? "is-used" : ""}" ${readingState.checked ? "disabled" : ""}>
+                            <span class="hanzi">${word}</span>
+                          </button>
+                        `;
+                      })
+                      .join("")}
+                  </div>
+                  <p class="text-[11px] text-paper/40 mt-2 italic">* Mẹo: Bấm trực tiếp vào ô đã điền trên đoạn văn để tháo từ trả về kho.</p>
+                </div>`
+              : `<!-- Câu hỏi đọc hiểu và 4 đáp án -->
+                <div class="mt-6 pt-5 border-t border-white/10">
+                  <div class="mb-3">
+                    <p class="hanzi text-lg sm:text-xl font-medium text-paper flex items-start gap-2">
+                      <span class="seal text-xs shrink-0 mt-0.5">问</span>
+                      <span>${r.question}</span>
+                    </p>
+                    ${readingState.showPinyin && r.questionPinyin ? `<p class="text-xs text-gold/80 mt-1 ml-9 font-mono">${r.questionPinyin}</p>` : ""}
+                  </div>
+
+                  <div class="grid sm:grid-cols-2 gap-3 mt-4">
+                    ${r.options
+                      .map((opt, idx) => {
+                        const letter = ["A", "B", "C", "D"][idx];
+                        let btnClass = "qa-option-btn";
+                        if (readingState.userQaSelection === idx) {
+                          btnClass += " is-selected";
+                        }
+                        if (readingState.checked) {
+                          if (idx === r.correctIndex) {
+                            btnClass += " is-correct";
+                          } else if (readingState.userQaSelection === idx && idx !== r.correctIndex) {
+                            btnClass += " is-wrong";
+                          }
+                        }
+                        return `
+                          <button data-qa-option="${idx}" class="${btnClass}" ${readingState.checked ? "disabled" : ""}>
+                            <span class="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-xs font-bold shrink-0 text-paper/80">${letter}</span>
+                            <span class="hanzi text-base sm:text-lg flex-1 min-w-0">${opt}</span>
+                          </button>
+                        `;
+                      })
+                      .join("")}
+                  </div>
+                </div>`
+          }
+
+          <!-- NÚT HÀNH ĐỘNG KIỂM TRA ĐÁP ÁN -->
+          <div class="mt-6 pt-5 border-t border-white/10 flex flex-wrap items-center gap-3">
+            ${
+              !readingState.checked
+                ? `<button id="btn-reading-check" class="bg-vermillion hover:bg-vermillion/90 text-white font-semibold py-3 px-8 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-vermillion/30 transition">
+                    <i data-lucide="check" class="w-4 h-4"></i> Kiểm tra đáp án
+                  </button>`
+                : `<button id="btn-reading-retry" class="glass hover:bg-white/10 text-paper font-semibold py-3 px-6 rounded-xl text-sm flex items-center justify-center gap-2 transition">
+                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Làm lại bài này
+                  </button>`
+            }
+          </div>
+
+          <!-- PHẦN MỞ KHÓA GIẢI THÍCH (Sau khi kiểm tra đáp án) -->
+          ${
+            readingState.checked
+              ? `<div class="mt-6 pt-5 border-t border-white/10 animate-fade-in space-y-3">
+                  <!-- Đánh giá kết quả -->
+                  <div class="p-4 rounded-2xl border ${
+                    readingState.isCorrect
+                      ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                      : "bg-vermillion/15 border-vermillion/40 text-red-300"
+                  } flex items-center gap-3">
+                    <i data-lucide="${readingState.isCorrect ? "check-circle" : "alert-circle"}" class="w-5 h-5 shrink-0"></i>
+                    <div class="text-xs sm:text-sm">
+                      <b>${readingState.isCorrect ? "Chính xác hoàn toàn!" : "Chưa hoàn toàn chính xác!"}</b>
+                      ${
+                        r.type === "cloze" && !readingState.isCorrect
+                          ? `<span class="block mt-0.5 text-paper/80">Đáp án chuẩn: ${Object.entries(r.answers).map(([k, v]) => `[${k}]: <b>${v}</b>`).join("  ·  ")}</span>`
+                          : ""
+                      }
+                      ${
+                        r.type === "qa" && !readingState.isCorrect
+                          ? `<span class="block mt-0.5 text-paper/80">Đáp án chuẩn: <b>${["A", "B", "C", "D"][r.correctIndex]}. ${r.options[r.correctIndex]}</b></span>`
+                          : ""
+                      }
+                    </div>
+                  </div>
+
+                  <!-- Phiên âm Pinyin toàn bài -->
+                  <div class="glass rounded-2xl p-4">
+                    <p class="text-[11px] text-gold font-mono uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <i data-lucide="languages" class="w-3.5 h-3.5"></i> Phiên âm Pinyin toàn bài:
+                    </p>
+                    <p class="text-xs sm:text-sm text-gold leading-relaxed font-mono">${r.pinyin}</p>
+                  </div>
+
+                  <!-- Bản dịch tiếng Việt -->
+                  <div class="glass rounded-2xl p-4">
+                    <p class="text-[11px] text-paper/50 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <i data-lucide="book-open" class="w-3.5 h-3.5"></i> Bản dịch nghĩa tiếng Việt:
+                    </p>
+                    <p class="text-xs sm:text-sm text-paper/90 leading-relaxed">${r.translation}</p>
+                  </div>
+                </div>`
+              : ""
+          }
+        </article>
+
+        <!-- THANH ĐIỀU HƯỚNG BÀI ĐỌC (Bài trước / Bài tiếp theo) -->
+        <div class="flex items-center justify-between pt-2">
+          <button id="reading-prev-btn" class="glass px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-white/10 transition disabled:opacity-30 disabled:pointer-events-none" ${readingState.index === 0 ? "disabled" : ""}>
+            <i data-lucide="chevron-left" class="w-4 h-4"></i> Bài trước
+          </button>
+
+          <span class="text-xs text-paper/50">
+            Bài ${readingState.index + 1} / ${list.length}
+          </span>
+
+          <button id="reading-next-btn" class="glass px-5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-white/10 transition disabled:opacity-30 disabled:pointer-events-none" ${readingState.index === list.length - 1 ? "disabled" : ""}>
+            Bài tiếp theo <i data-lucide="chevron-right" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Sự kiện bộ lọc dạng bài đọc
+    els.reading.querySelectorAll("[data-reading-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        initReading(btn.dataset.readingFilter);
+        renderReading();
+      });
+    });
+
+    // Sự kiện bấm chọn ô điền (Cloze slot)
+    els.reading.querySelectorAll("[data-blank-id]").forEach((slot) => {
+      slot.addEventListener("click", () => {
+        if (readingState.checked) return;
+        const blankId = slot.dataset.blankId;
+        // Nếu đã có từ: tháo từ trả về kho
+        if (readingState.userClozeAnswers[blankId]) {
+          readingState.userClozeAnswers[blankId] = null;
+        }
+        readingState.activeBlank = blankId;
+        renderReading();
+      });
+    });
+
+    // Sự kiện bấm từ trong Word Bank (Cloze)
+    els.reading.querySelectorAll("[data-word-chip]").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        if (readingState.checked) return;
+        const word = chip.dataset.wordChip;
+        const answersKeys = Object.keys(r.answers);
+
+        // Nếu từ này đã dùng ở ô khác, giải phóng ô đó
+        Object.keys(readingState.userClozeAnswers).forEach((k) => {
+          if (readingState.userClozeAnswers[k] === word) {
+            readingState.userClozeAnswers[k] = null;
+          }
+        });
+
+        // Điền vào ô đang chọn hoặc ô trống đầu tiên
+        let targetBlank = readingState.activeBlank;
+        if (!targetBlank || readingState.userClozeAnswers[targetBlank]) {
+          targetBlank = answersKeys.find((k) => !readingState.userClozeAnswers[k]);
+        }
+
+        if (targetBlank) {
+          readingState.userClozeAnswers[targetBlank] = word;
+          // Tìm ô trống kế tiếp để chuyển active
+          const nextBlank = answersKeys.find((k) => !readingState.userClozeAnswers[k]);
+          readingState.activeBlank = nextBlank || null;
+        }
+
+        renderReading();
+      });
+    });
+
+    // Sự kiện chọn đáp án QA
+    els.reading.querySelectorAll("[data-qa-option]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (readingState.checked) return;
+        readingState.userQaSelection = parseInt(btn.dataset.qaOption, 10);
+        renderReading();
+      });
+    });
+
+    // Sự kiện nghe phát âm toàn bài
+    document.getElementById("reading-speak-btn")?.addEventListener("click", () => {
+      speak(speechPassage);
+    });
+
+    // Sự kiện bật/tắt Pinyin
+    document.getElementById("reading-toggle-pinyin-btn")?.addEventListener("click", () => {
+      readingState.showPinyin = !readingState.showPinyin;
+      renderReading();
+    });
+
+    // Sự kiện Kiểm tra đáp án
+    document.getElementById("btn-reading-check")?.addEventListener("click", () => {
+      if (r.type === "cloze") {
+        const blankKeys = Object.keys(r.answers);
+        const filledCount = blankKeys.filter((k) => readingState.userClozeAnswers[k]).length;
+        if (filledCount < blankKeys.length) {
+          showToast(`Vui lòng điền đủ ${blankKeys.length} ô trống trước khi kiểm tra!`, "error");
+          return;
+        }
+        const allOk = blankKeys.every((k) => readingState.userClozeAnswers[k] === r.answers[k]);
+        readingState.checked = true;
+        readingState.isCorrect = allOk;
+        if (allOk) {
+          ProgressStore.recordReading(state.levelId, r.id);
+          showToast("Xuất sắc! Tất cả các vị trí điền đều chính xác!", "success");
+        } else {
+          showToast("Có vị trí điền chưa đúng, hãy xem đáp án chuẩn bên dưới.", "error");
+        }
+      } else {
+        if (readingState.userQaSelection == null) {
+          showToast("Vui lòng chọn 1 đáp án A, B, C hoặc D trước khi kiểm tra!", "error");
+          return;
+        }
+        const isOk = readingState.userQaSelection === r.correctIndex;
+        readingState.checked = true;
+        readingState.isCorrect = isOk;
+        if (isOk) {
+          ProgressStore.recordReading(state.levelId, r.id);
+          showToast("Chính xác! Câu trả lời rất chuẩn!", "success");
+        } else {
+          showToast("Đáp án chưa chính xác, hãy đối chiếu bên dưới.", "error");
+        }
+      }
+      renderReading();
+    });
+
+    // Sự kiện Làm lại bài
+    document.getElementById("btn-reading-retry")?.addEventListener("click", () => {
+      setupCurrentReading();
+      renderReading();
+    });
+
+    // Sự kiện Bài trước
+    document.getElementById("reading-prev-btn")?.addEventListener("click", () => {
+      if (readingState.index > 0) {
+        readingState.index -= 1;
+        setupCurrentReading();
+        renderReading();
+      }
+    });
+
+    // Sự kiện Bài tiếp theo
+    document.getElementById("reading-next-btn")?.addEventListener("click", () => {
+      if (readingState.index + 1 < list.length) {
+        readingState.index += 1;
+        setupCurrentReading();
+        renderReading();
+      }
+    });
+
+    refreshIcons();
   }
 
   // ================= MODULE 2: SAO LƯU & PHỤC HỒI (IMPORT/EXPORT) =================
@@ -1334,7 +2677,9 @@
     if (state.view === "study") renderStudy();
     if (state.view === "flash") renderFlash();
     if (state.view === "quiz") renderQuiz();
+    if (state.view === "listening") renderListening();
     if (state.view === "sentence") renderSentence();
+    if (state.view === "reading") renderReading();
     if (state.view === "typing") renderTyping();
     refreshIcons();
   }
@@ -1344,7 +2689,12 @@
     btn.addEventListener("click", () => {
       const v = btn.dataset.view;
       if (v === "quiz" && !state.quiz) startQuiz();
+      if (v === "listening" && !state.listening) {
+        startListening();
+        playCurrentListeningWord();
+      }
       if (v === "sentence" && !state.sentenceTest) startSentenceTest();
+      if (v === "reading" && !state.reading) initReading();
       if (v === "typing" && !state.typing) startTyping();
       if (v === "flash") {
         state.flashIndex = 0;
