@@ -123,6 +123,9 @@
         if (!level?.enabled) return;
         state.levelId = level.id;
         state.topicId = "all";
+        state.quiz = null;
+        state.sentenceTest = null;
+        state.typing = null;
         ProgressStore.setCurrentLevel(level.id);
         render();
       });
