@@ -559,7 +559,7 @@
 
   function renderSentence() {
     els.crumb.textContent = "Luyện tập ngữ pháp";
-    els.title.textContent = "Luyện đặt câu HSK 1";
+    els.title.textContent = `Luyện đặt câu ${currentLevel()?.name || "HSK"}`;
 
     if (!state.sentenceTest || !state.sentenceTest.questions.length) {
       startSentenceTest();
@@ -809,7 +809,7 @@
     let evaluation = "Cần cố gắng hơn! Hãy xem lại các câu sai để ghi nhớ nhé.";
     let badgeColor = "text-amber-400";
     if (pct >= 90) {
-      evaluation = "🎉 Xuất sắc! Bạn nắm rất vững cấu trúc câu ngữ pháp HSK 1!";
+      evaluation = `🎉 Xuất sắc! Bạn nắm rất vững cấu trúc câu ngữ pháp ${currentLevel()?.name || "HSK"}!`;
       badgeColor = "text-emerald-400";
     } else if (pct >= 70) {
       evaluation = "👏 Khá tốt! Bạn đã hiểu hầu hết cấu trúc câu cơ bản.";

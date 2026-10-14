@@ -1,7 +1,8 @@
 const HSK_LEVELS = [
   { id: 1, name: "HSK 1 (3.0)", totalWords: 318, enabled: true },
   { id: 2, name: "HSK 2 (3.0)", totalWords: 205, enabled: true },
-  { id: 3, name: "HSK 3 (3.0)", totalWords: 0, enabled: false },
+  { id: 3, name: "HSK 3 (3.0)", totalWords: 973, enabled: true },
+  { id: 4, name: "HSK 4 (3.0)", totalWords: 1000, enabled: true },
 ];
 
 const TOPICS = [
