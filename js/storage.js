@@ -37,6 +37,12 @@ const ProgressStore = (() => {
     if (!state.levels[id].sentence) state.levels[id].sentence = { correct: 0, total: 0, lastScore: null };
     if (!state.levels[id].listening) state.levels[id].listening = { correct: 0, total: 0, lastScore: null };
     if (!state.levels[id].reading) state.levels[id].reading = { completed: {}, count: 0 };
+    if (!state.levels[id].reading.completed || typeof state.levels[id].reading.completed !== "object") {
+      state.levels[id].reading.completed = {};
+    }
+    if (typeof state.levels[id].reading.count !== "number") {
+      state.levels[id].reading.count = Object.keys(state.levels[id].reading.completed).length;
+    }
     return state.levels[id];
   }
 
@@ -196,6 +202,11 @@ const ProgressStore = (() => {
               favorites: lvlData.favorites && typeof lvlData.favorites === "object" ? { ...lvlData.favorites } : {},
               quiz: lvlData.quiz || { correct: 0, total: 0, lastScore: null },
               sentence: lvlData.sentence || { correct: 0, total: 0, lastScore: null },
+              listening: lvlData.listening || { correct: 0, total: 0, lastScore: null },
+              reading: lvlData.reading && typeof lvlData.reading === "object" ? {
+                completed: lvlData.reading.completed && typeof lvlData.reading.completed === "object" ? { ...lvlData.reading.completed } : {},
+                count: Number(lvlData.reading.count) || 0,
+              } : { completed: {}, count: 0 },
             };
           }
         }

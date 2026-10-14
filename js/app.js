@@ -52,23 +52,75 @@
     });
   }
 
+  let activeUtterance = null;
+  let speechVoices = [];
+
+  function loadVoices() {
+    if (!window.speechSynthesis) return;
+    speechVoices = window.speechSynthesis.getVoices() || [];
+  }
+
+  if (window.speechSynthesis) {
+    loadVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+  }
+
+  function getChineseVoice() {
+    if (!speechVoices.length && window.speechSynthesis) {
+      loadVoices();
+    }
+    return (
+      speechVoices.find((v) => v.lang === "zh-CN" || v.lang === "zh_CN") ||
+      speechVoices.find((v) => v.lang.startsWith("zh")) ||
+      null
+    );
+  }
+
   function speak(text, rate = 0.9, onEnd = null) {
-    if (!window.speechSynthesis) {
+    if (!window.speechSynthesis || !text) {
       if (onEnd) onEnd();
       return;
     }
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = "zh-CN";
-    utter.rate = rate;
-    const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find((v) => v.lang.startsWith("zh"));
-    if (voice) utter.voice = voice;
-    if (onEnd) {
-      utter.onend = onEnd;
-      utter.onerror = onEnd;
+    try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+      }
+      const utter = new SpeechSynthesisUtterance(text);
+      activeUtterance = utter; // Ngăn GC thu hồi mid-speech trong Chromium
+      utter.lang = "zh-CN";
+      utter.rate = rate;
+      const voice = getChineseVoice();
+      if (voice) utter.voice = voice;
+
+      let ended = false;
+      const finish = () => {
+        if (ended) return;
+        ended = true;
+        if (activeUtterance === utter) activeUtterance = null;
+        if (onEnd) onEnd();
+      };
+
+      utter.onend = finish;
+      utter.onerror = () => {
+        finish();
+      };
+
+      // Watchdog timeout an toàn chống trường hợp Chromium onend bị rớt
+      const safeDuration = Math.max(2000, Math.min(30000, (text.length * 350) / rate + 1000));
+      setTimeout(() => {
+        if (!ended && activeUtterance === utter) {
+          finish();
+        }
+      }, safeDuration);
+
+      window.speechSynthesis.speak(utter);
+    } catch (err) {
+      console.warn("speechSynthesis error:", err);
+      if (onEnd) onEnd();
     }
-    window.speechSynthesis.speak(utter);
   }
 
   function shuffle(list) {
@@ -100,6 +152,11 @@
   }
 
   function setView(view) {
+    if (window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+      window.speechSynthesis.cancel();
+    }
+    if (state.reading) state.reading.isSpeaking = false;
+    if (state.listening) state.listening.isPlaying = false;
     state.view = view;
     ["home", "study", "flash", "quiz", "listening", "sentence", "reading", "typing"].forEach((name) => {
       if (els[name]) {
@@ -159,7 +216,7 @@
     const options = [`<option value="all">Tất cả chủ đề</option>`]
       .concat(topics().map((t) => `<option value="${t.id}" ${t.id === state.topicId ? "selected" : ""}>${t.name}</option>`))
       .join("");
-    return `<select class="topic-select bg-white text-black border border-white/10 rounded-xl px-3 py-2 text-sm ${extraClass}">${options}</select>`;
+    return `<select id="topic-select" name="topic-select" aria-label="Chọn chủ đề" class="topic-select bg-white text-black border border-white/10 rounded-xl px-3 py-2 text-sm ${extraClass}">${options}</select>`;
   }
 
   function renderHome() {
@@ -175,12 +232,12 @@
 
     els.home.innerHTML = `
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Từ vựng</p><p class="text-2xl mt-1">${all.length}</p></div>
-        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Đã thuộc</p><p class="text-2xl mt-1 text-gold">${masteredAll}</p></div>
-        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Quiz gần nhất</p><p class="text-2xl mt-1">${quiz.lastScore == null ? "—" : quiz.lastScore + "%"}</p></div>
-        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Luyện nghe</p><p class="text-2xl mt-1 text-sky-400">${listeningStats.lastScore == null ? "—" : listeningStats.lastScore + "%"}</p></div>
-        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Đặt câu</p><p class="text-2xl mt-1 text-emerald-400">${sentenceStats.lastScore == null ? "—" : sentenceStats.lastScore + "%"}</p></div>
-        <div class="glass rounded-2xl p-4"><p class="text-xs text-paper/50">Bài đọc xong</p><p class="text-2xl mt-1 text-amber-400">${readingStats.count}</p></div>
+        <div data-goto-view="study" class="glass rounded-2xl p-4 cursor-pointer hover:border-gold/50 transition" title="Bấm để học từ vựng"><p class="text-xs text-paper/50">Từ vựng</p><p class="text-2xl mt-1">${all.length}</p></div>
+        <div data-goto-view="study" class="glass rounded-2xl p-4 cursor-pointer hover:border-gold/50 transition" title="Bấm xem từ đã thuộc"><p class="text-xs text-paper/50">Đã thuộc</p><p class="text-2xl mt-1 text-gold">${masteredAll}</p></div>
+        <div data-goto-view="quiz" class="glass rounded-2xl p-4 cursor-pointer hover:border-gold/50 transition" title="Bấm làm trắc nghiệm"><p class="text-xs text-paper/50">Quiz gần nhất</p><p class="text-2xl mt-1">${quiz.lastScore == null ? "—" : quiz.lastScore + "%"}</p></div>
+        <div data-goto-view="listening" class="glass rounded-2xl p-4 cursor-pointer hover:border-sky-400/50 transition" title="Bấm vào Luyện nghe"><p class="text-xs text-paper/50">Luyện nghe</p><p class="text-2xl mt-1 text-sky-400">${listeningStats.lastScore == null ? "—" : listeningStats.lastScore + "%"}</p></div>
+        <div data-goto-view="sentence" class="glass rounded-2xl p-4 cursor-pointer hover:border-emerald-400/50 transition" title="Bấm vào Luyện đặt câu"><p class="text-xs text-paper/50">Đặt câu</p><p class="text-2xl mt-1 text-emerald-400">${sentenceStats.lastScore == null ? "—" : sentenceStats.lastScore + "%"}</p></div>
+        <div data-goto-view="reading" class="glass rounded-2xl p-4 cursor-pointer hover:border-amber-400/50 transition" title="Bấm vào Luyện đọc"><p class="text-xs text-paper/50">Bài đọc xong</p><p class="text-2xl mt-1 text-amber-400">${readingStats.count}</p></div>
       </div>
       <div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         ${topics()
@@ -207,6 +264,34 @@
           })
           .join("")}
       </div>`;
+
+    els.home.querySelectorAll("[data-goto-view]").forEach((card) => {
+      card.addEventListener("click", () => {
+        const v = card.dataset.gotoView;
+        if (v === "listening") {
+          startListening();
+          setView("listening");
+          playCurrentListeningWord();
+          return;
+        }
+        if (v === "reading") {
+          initReading();
+          setView("reading");
+          return;
+        }
+        if (v === "sentence") {
+          startSentenceTest();
+          setView("sentence");
+          return;
+        }
+        if (v === "quiz") {
+          startQuiz();
+          setView("quiz");
+          return;
+        }
+        setView(v);
+      });
+    });
 
     els.home.querySelectorAll("[data-open-study]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -248,7 +333,7 @@
     els.study.innerHTML = `
       <div class="flex flex-wrap gap-2 mb-5">
         ${topicSelect()}
-        <select class="filter-select bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm">
+        <select id="study-filter-select" name="study-filter-select" aria-label="Lọc từ vựng" class="filter-select bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm">
           <option value="all" ${state.filter === "all" ? "selected" : ""}>Tất cả</option>
           <option value="learning" ${state.filter === "learning" ? "selected" : ""}>Chưa thuộc</option>
           <option value="mastered" ${state.filter === "mastered" ? "selected" : ""}>Đã thuộc</option>
@@ -1012,6 +1097,7 @@
       speed: 1.0,
       mode: "meaning", // "meaning" | "hanzi"
       isPlaying: false,
+      showPinyinHint: false,
       wrongList: [],
       done: false,
       showReviewModal: false,
@@ -1068,6 +1154,7 @@
       lst.answered = false;
       lst.selectedWordId = null;
       lst.isCorrect = null;
+      lst.showPinyinHint = false;
       renderListening();
       playCurrentListeningWord();
     }
@@ -1249,6 +1336,12 @@
           </div>
 
           <div class="flex items-center gap-2">
+            <!-- Nút gợi ý phát âm khi audio không khả dụng -->
+            <button id="listening-hint-btn" class="glass px-2.5 py-1 rounded-xl text-xs ${lst.showPinyinHint ? "text-amber-300 border-amber-500/40 bg-amber-500/10" : "text-paper/60 hover:text-amber-300"} transition flex items-center gap-1" title="Hiện phiên âm nếu không nghe được âm thanh">
+              <i data-lucide="lightbulb" class="w-3.5 h-3.5 text-amber-300"></i>
+              <span>${lst.showPinyinHint ? "Ẩn âm" : "Gợi ý âm"}</span>
+            </button>
+
             <!-- Chọn chế độ đáp án -->
             <div class="flex rounded-xl glass p-0.5 border border-white/10 text-xs">
               <button data-listen-mode="meaning" class="px-2.5 py-1 rounded-lg transition ${lst.mode === "meaning" ? "bg-white/15 text-white font-medium" : "text-paper/60 hover:text-paper"}">
@@ -1266,6 +1359,16 @@
             </div>
           </div>
         </div>
+
+        <!-- Khung gợi ý Pinyin nếu bật -->
+        ${
+          lst.showPinyinHint
+            ? `<div class="mb-4 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 text-center animate-fade-in flex items-center justify-center gap-2">
+                <i data-lucide="info" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                <span>Phiên âm: <b class="font-mono text-amber-300 text-sm ml-1">${q.word.pinyin}</b></span>
+              </div>`
+            : ""
+        }
 
         <!-- Thanh tiến độ câu hỏi -->
         <div class="flex items-center justify-between text-xs text-paper/60 mb-2">
@@ -1335,11 +1438,13 @@
           ${q.choiceWords
             .map((cw, idx) => {
               const letter = ["A", "B", "C", "D"][idx];
+              const isTarget = Number(cw.id) === Number(q.word.id);
+              const isPicked = lst.selectedWordId != null && Number(cw.id) === Number(lst.selectedWordId);
               let btnClass = "listen-choice-btn";
               if (lst.answered) {
-                if (cw.id === q.word.id) {
+                if (isTarget) {
                   btnClass += lst.isCorrect ? " is-correct" : " flash-correct";
-                } else if (cw.id === lst.selectedWordId && !lst.isCorrect) {
+                } else if (isPicked && !lst.isCorrect) {
                   btnClass += " is-wrong";
                 }
               }
@@ -1359,14 +1464,20 @@
       </div>
     `;
 
+    // Sự kiện nút gợi ý phiên âm
+    document.getElementById("listening-hint-btn")?.addEventListener("click", () => {
+      lst.showPinyinHint = !lst.showPinyinHint;
+      renderListening();
+    });
+
     // Sự kiện chọn đáp án
     els.listening.querySelectorAll("[data-listen-choice]").forEach((btn) => {
       btn.addEventListener("click", () => {
         if (lst.answered) return;
-        const pickedId = btn.dataset.listenChoice;
+        const pickedId = Number(btn.dataset.listenChoice);
         lst.answered = true;
         lst.selectedWordId = pickedId;
-        const isOk = pickedId === q.word.id;
+        const isOk = pickedId === Number(q.word.id);
         lst.isCorrect = isOk;
 
         if (isOk) {
@@ -1819,6 +1930,7 @@
 
   // ================= MODULE: LUYỆN ĐỌC HIỂU (HSK READING) =================
   function initReading(typeFilter = null) {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (typeFilter) {
       if (state.reading) state.reading.typeFilter = typeFilter;
     }
@@ -1833,6 +1945,7 @@
       passages: passages,
       index: 0,
       showPinyin: false,
+      isSpeaking: false,
       userClozeAnswers: {},
       activeBlank: "1",
       userQaSelection: null,
@@ -1844,6 +1957,8 @@
 
   function setupCurrentReading() {
     if (!state.reading || !state.reading.passages.length) return;
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    state.reading.isSpeaking = false;
     const r = state.reading.passages[state.reading.index];
     state.reading.userClozeAnswers = {};
     state.reading.activeBlank = "1";
@@ -1950,9 +2065,9 @@
             </div>
 
             <div class="flex items-center gap-2">
-              <button id="reading-speak-btn" class="glass px-3 py-1.5 rounded-xl text-xs text-paper/80 hover:text-gold transition flex items-center gap-1.5" title="Nghe phát âm toàn bài">
-                <i data-lucide="volume-2" class="w-3.5 h-3.5 text-gold"></i>
-                <span>🔊 Nghe đoạn văn</span>
+              <button id="reading-speak-btn" class="glass px-3 py-1.5 rounded-xl text-xs ${readingState.isSpeaking ? "text-vermillion border-vermillion/40 bg-vermillion/10" : "text-paper/80 hover:text-gold"} transition flex items-center gap-1.5" title="${readingState.isSpeaking ? "Bấm để dừng đọc" : "Nghe phát âm toàn bài"}">
+                <i data-lucide="${readingState.isSpeaking ? "square" : "volume-2"}" class="w-3.5 h-3.5 ${readingState.isSpeaking ? "text-vermillion" : "text-gold"}"></i>
+                <span>${readingState.isSpeaking ? "⏹ Dừng đọc" : "🔊 Nghe đoạn văn"}</span>
               </button>
 
               <button id="reading-toggle-pinyin-btn" class="glass px-3 py-1.5 rounded-xl text-xs ${readingState.showPinyin ? "text-gold border-gold/40 bg-gold/10" : "text-paper/70 hover:text-paper"} transition flex items-center gap-1.5">
@@ -2010,10 +2125,15 @@
               : `<!-- Câu hỏi đọc hiểu và 4 đáp án -->
                 <div class="mt-6 pt-5 border-t border-white/10">
                   <div class="mb-3">
-                    <p class="hanzi text-lg sm:text-xl font-medium text-paper flex items-start gap-2">
-                      <span class="seal text-xs shrink-0 mt-0.5">问</span>
-                      <span>${r.question}</span>
-                    </p>
+                    <div class="flex items-start justify-between gap-3">
+                      <p class="hanzi text-lg sm:text-xl font-medium text-paper flex items-start gap-2">
+                        <span class="seal text-xs shrink-0 mt-0.5">问</span>
+                        <span>${r.question}</span>
+                      </p>
+                      <button id="qa-speak-question-btn" class="w-8 h-8 rounded-full bg-white/5 hover:bg-gold/20 text-gold flex items-center justify-center shrink-0 transition" title="Nghe câu hỏi">
+                        <i data-lucide="volume-2" class="w-4 h-4"></i>
+                      </button>
+                    </div>
                     ${readingState.showPinyin && r.questionPinyin ? `<p class="text-xs text-gold/80 mt-1 ml-9 font-mono">${r.questionPinyin}</p>` : ""}
                   </div>
 
@@ -2182,9 +2302,27 @@
       });
     });
 
-    // Sự kiện nghe phát âm toàn bài
+    // Sự kiện nghe phát âm toàn bài (bật/dừng linh hoạt)
     document.getElementById("reading-speak-btn")?.addEventListener("click", () => {
-      speak(speechPassage);
+      if (readingState.isSpeaking) {
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        readingState.isSpeaking = false;
+        renderReading();
+        return;
+      }
+      readingState.isSpeaking = true;
+      renderReading();
+      speak(speechPassage, 0.85, () => {
+        if (state.reading) {
+          state.reading.isSpeaking = false;
+          renderReading();
+        }
+      });
+    });
+
+    // Sự kiện nghe câu hỏi đọc hiểu
+    document.getElementById("qa-speak-question-btn")?.addEventListener("click", () => {
+      speak(r.question, 0.9);
     });
 
     // Sự kiện bật/tắt Pinyin
@@ -2477,6 +2615,8 @@
           <div class="mt-6 flex flex-col items-center">
             <input
               id="typing-input-field"
+              name="typing-text"
+              aria-label="Ô nhập từ luyện gõ"
               type="text"
               class="typing-input ${typing.status === 'correct' ? 'typing-correct' : ''} ${typing.status === 'wrong' ? 'typing-wrong' : ''}"
               placeholder="${typing.mode === 'hanzi' ? 'Gõ chữ Hán...' : 'Gõ pinyin...'}"
@@ -2688,14 +2828,34 @@
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const v = btn.dataset.view;
-      if (v === "quiz" && !state.quiz) startQuiz();
-      if (v === "listening" && !state.listening) {
-        startListening();
-        playCurrentListeningWord();
+      if (v === "listening") {
+        if (!state.listening || state.listening.done) startListening();
+        setView("listening");
+        if (!state.listening.answered && !state.listening.done) {
+          playCurrentListeningWord();
+        }
+        return;
       }
-      if (v === "sentence" && !state.sentenceTest) startSentenceTest();
-      if (v === "reading" && !state.reading) initReading();
-      if (v === "typing" && !state.typing) startTyping();
+      if (v === "reading") {
+        if (!state.reading) initReading();
+        setView("reading");
+        return;
+      }
+      if (v === "quiz") {
+        if (!state.quiz || state.quiz.done) startQuiz();
+        setView("quiz");
+        return;
+      }
+      if (v === "sentence") {
+        if (!state.sentenceTest || state.sentenceTest.done) startSentenceTest();
+        setView("sentence");
+        return;
+      }
+      if (v === "typing") {
+        if (!state.typing || state.typing.done) startTyping();
+        setView("typing");
+        return;
+      }
       if (v === "flash") {
         state.flashIndex = 0;
         state.flipped = false;

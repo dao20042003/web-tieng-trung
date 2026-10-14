@@ -103,7 +103,7 @@
           </div>
         </div>
 
-        <input type="file" id="import-file-input" accept=".json" class="hidden" />
+        <input type="file" id="import-file-input" name="import-file" accept=".json" class="hidden" aria-label="Tải lên tệp sao lưu" />
 
         <p class="hidden lg:block mt-auto text-[11px] leading-relaxed text-paper/40">
           HSK 1 (318 từ) · HSK 2 (205 từ) · HSK 3 (973 từ) · HSK 4 (1000 từ). Chuẩn HSK 3.0 với 12 nhóm chủ đề.
@@ -121,8 +121,10 @@
               <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-paper/40"></i>
               <input
                 id="search-input"
+                name="search-query"
                 type="search"
                 placeholder="Tìm Hán tự, pinyin, nghĩa..."
+                aria-label="Tìm kiếm từ vựng"
                 class="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none focus:border-gold/50"
               />
             </div>
