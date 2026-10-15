@@ -265,13 +265,14 @@
         appState.dict.speechRecognizer.stop();
       } catch (e) {}
       appState.dict.isListening = false;
+    }
+
     if (appState.typing?.animationFrameId) {
       cancelAnimationFrame(appState.typing.animationFrameId);
       appState.typing.animationFrameId = null;
     }
     if (appState.typing) {
       appState.typing.isPaused = true;
-    }
     }
 
     appState.currentTab = targetTab;
@@ -2074,8 +2075,7 @@
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "") // Bỏ toàn bộ dấu thanh tiếng Việt
-      .replace(/đ/g, "d")
-      .replace(/Đ/g, "d")
+      .replace(/[\u0111\u0110\u0111\u0110dđĐ]/g, "d")
       .replace(/[^a-z0-9\s]/g, " ")   // Bỏ ký tự đặc biệt
       .replace(/\s+/g, " ")
       .trim();
@@ -2087,7 +2087,7 @@
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "") // Bỏ dấu thanh điệu Pinyin
-      .replace(/ü/g, "v")
+      .replace(/[\u00fc\u01d6\u01d8\u01da\u01dcüv]/g, "v")
       .replace(/[^a-z0-9]/g, "")      // Bỏ khoảng trắng, dấu câu
       .trim();
   }
@@ -3573,8 +3573,7 @@
     const qLower = qRaw.toLowerCase();
     const qNormVi = normalizeVietnamese(qRaw);
     const qNormPy = normalizePinyinRaw(qRaw);
-
-    const allWords = VOCAB_DATA;
+    const allWords = typeof VOCAB_DATA !== "undefined" ? VOCAB_DATA : (typeof DataStore !== "undefined" ? DataStore.getVocab() : []);
     const matches = [];
 
     for (let i = 0; i < allWords.length; i++) {
@@ -3624,7 +3623,7 @@
     const qVi = normalizeVietnamese(qTrim);
     const hanziKey = primaryWord?.hanzi || (qTrim.match(/[\u4e00-\u9fa5]+/g) || [])[0] || "";
 
-    const list = SENTENCE_DATA || [];
+    const list = typeof SENTENCE_DATA !== "undefined" ? SENTENCE_DATA : [];
     const results = [];
 
     for (let i = 0; i < list.length; i++) {
@@ -3697,8 +3696,11 @@
 
   // --- RENDER CHÍNH CHO BỘ TỪ ĐIỂN TRA CỨU THÔNG MINH ---
   function renderDict() {
-    dom.crumb.textContent = "Tra cứu / Từ điển";
-    dom.pageTitle.textContent = "Từ điển Tra cứu thông minh HSK";
+    if (dom.crumb) dom.crumb.textContent = "Tra cứu / Từ điển";
+    if (dom.pageTitle) dom.pageTitle.textContent = "Từ điển Tra cứu thông minh HSK";
+
+    const dictView = dom.views.dict || document.getElementById("view-dict");
+    if (!dictView) return;
 
     const d = appState.dict;
     const query = (d.query || "").trim();
@@ -3735,7 +3737,7 @@
       : [];
 
     // RENDER KHUNG GIAO DIỆN
-    dom.views.dict.innerHTML = `
+    dictView.innerHTML = `
       <div class="max-w-4xl mx-auto space-y-6 animate-fade-in pb-12">
         
         <!-- HEADER TÌM KIẾM (HANZII/MAZII STYLE) -->
