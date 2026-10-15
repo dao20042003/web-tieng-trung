@@ -323,5 +323,63 @@ const ProgressStore = (() => {
         return { success: false, error: err.message || "Lỗi xử lý tệp sao lưu JSON." };
       }
     },
+
+    // ================= TỪ ĐIỂN: LỊCH SỬ TRA CỨU & THẺ TỪ CỦA TÔI =================
+    getSearchHistory() {
+      try {
+        const raw = localStorage.getItem("hsk-search-history");
+        if (!raw) return ["打", "起", "话", "工作", "朋友", "喜欢"]; // Dữ liệu mẫu ban đầu hữu ích
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return ["打", "起", "话", "工作", "朋友"];
+      }
+    },
+
+    addSearchHistory(term) {
+      if (!term || typeof term !== "string") return;
+      const clean = term.trim();
+      if (!clean) return;
+      try {
+        let history = this.getSearchHistory().filter((x) => x !== clean);
+        history.unshift(clean);
+        if (history.length > 15) history = history.slice(0, 15);
+        localStorage.setItem("hsk-search-history", JSON.stringify(history));
+      } catch (e) {
+        console.warn("[DictStore] Failed to save search history:", e);
+      }
+    },
+
+    removeSearchHistory(term) {
+      try {
+        let history = this.getSearchHistory().filter((x) => x !== term);
+        localStorage.setItem("hsk-search-history", JSON.stringify(history));
+        return history;
+      } catch {
+        return [];
+      }
+    },
+
+    clearSearchHistory() {
+      try {
+        localStorage.removeItem("hsk-search-history");
+      } catch (e) {}
+    },
+
+    getAllFavorites() {
+      const state = read();
+      const favList = [];
+      for (const [lvlId, lvlData] of Object.entries(state.levels)) {
+        if (lvlData && lvlData.favorites) {
+          for (const wordId of Object.keys(lvlData.favorites)) {
+            if (lvlData.favorites[wordId]) {
+              const word = DataStore.getVocabById(Number(wordId));
+              if (word) favList.push(word);
+            }
+          }
+        }
+      }
+      return favList;
+    },
   };
 })();
