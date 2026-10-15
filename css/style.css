@@ -1346,4 +1346,38 @@ body {
   to { transform: scale(1); opacity: 1; }
 }
 
+/* 9. Handwriting Recognition Candidates */
+.handwriting-cand-btn {
+  color: #f6ede2;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.handwriting-cand-btn:hover {
+  color: #d4a017;
+  border-color: rgba(212, 160, 23, 0.5);
+  background: rgba(212, 160, 23, 0.14);
+  transform: translateY(-2px) scale(1.05);
+}
+.handwriting-cand-btn:active {
+  transform: scale(0.95);
+}
+.handwriting-cand-first {
+  color: #d4a017 !important;
+  border-color: #d4a017 !important;
+  background: rgba(212, 160, 23, 0.18) !important;
+  box-shadow: 0 0 14px rgba(212, 160, 23, 0.35);
+  animation: candGlow 2s infinite ease-in-out;
+}
+@keyframes candGlow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(212, 160, 23, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(212, 160, 23, 0.55);
+  }
+}
+
+
 

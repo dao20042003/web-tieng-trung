@@ -64,6 +64,7 @@
       isListening: false,
       speechRecognizer: null,
       handwritingStrokes: [],
+      handwritingCandidates: [],
       showStrokeGuide: true,
     },
   };
@@ -4412,23 +4413,67 @@
     `;
   }
 
-  // --- MODAL 2: ✏️ VIẾT TAY (CANVAS DRAWING PAD) ---
+  // --- MODAL 2: ✏️ VIẾT TAY (CANVAS DRAWING PAD & REAL-TIME RECOGNITION) ---
+  const DEFAULT_HANDWRITING_CHARS = ["一", "人", "大", "天", "口", "日", "月", "木", "中", "学", "好", "水", "火", "门"];
+
+  const OFFLINE_STROKE_MAP = {
+    1: ["一", "乙"],
+    2: ["二", "十", "人", "入", "八", "九", "几", "儿", "了", "力", "又", "七"],
+    3: ["三", "口", "山", "大", "小", "上", "下", "个", "也", "女", "子", "么", "门", "工", "千", "万", "久"],
+    4: ["不", "中", "天", "太", "月", "日", "水", "火", "木", "车", "手", "文", "开", "友", "分", "六", "五", "四", "牛", "毛"],
+    5: ["去", "叫", "正", "生", "本", "白", "右", "左", "出", "打", "北", "包", "号", "句", "市", "立", "半", "冬", "平", "以"],
+    6: ["多", "在", "同", "吃", "后", "好", "会", "有", "西", "年", "买", "回", "字", "名", "自", "米", "老", "先", "关", "动"],
+    7: ["还", "远", "近", "连", "进", "你", "我", "作", "住", "听", "冷", "应", "完", "每", "体", "弟", "别", "张", "条", "求"],
+    8: ["和", "学", "店", "爸", "国", "画", "明", "朋", "经", "知", "话", "妹", "果", "视", "服", "房", "雨", "玩", "定", "空"],
+    9: ["看", "说", "便", "南", "面", "给", "想", "度", "查", "音", "段", "很", "是", "重", "点", "觉", "急", "前", "客", "界"],
+    10: ["家", "准", "备", "真", "校", "高", "哥", "桌", "起", "能", "钱", "笑", "请", "病", "通", "特", "拿", "海", "酒", "原"],
+    11: ["做", "常", "教", "黄", "得", "情", "排", "船", "猫", "理", "眼", "着", "甜", "蛋", "接", "累", "望", "宿", "假", "康"],
+    12: ["期", "菜", "喜", "喝", "散", "答", "最", "超", "黑", "就", "复", "等", "越", "短", "晴", "然", "街", "棒", "硬", "强"],
+    13: ["新", "想", "感", "照", "错", "睡", "跳", "跟", "意", "解", "路", "零", "暖", "满", "输", "勤", "简", "楼", "静", "微"],
+    14: ["漂", "精", "慢", "端", "酸", "模", "赛", "管", "算", "通", "演", "碧", "需", "愿", "察", "静", "旗"],
+    15: ["题", "颜", "熟", "懂", "糖", "镜", "餐", "操", "繁", "翻", "赞", "警", "露", "囊", "衢"],
+  };
+
+  function getOfflineHandwritingCandidates(strokeCount) {
+    if (!strokeCount || strokeCount <= 0) return DEFAULT_HANDWRITING_CHARS;
+    if (strokeCount in OFFLINE_STROKE_MAP) {
+      return OFFLINE_STROKE_MAP[strokeCount];
+    }
+    if (strokeCount > 15) {
+      return OFFLINE_STROKE_MAP[15];
+    }
+    return DEFAULT_HANDWRITING_CHARS;
+  }
+
   function renderHandwritingModal(showGuide) {
-    const quickCandidates = ["一", "人", "大", "天", "口", "日", "月", "木", "中", "学", "好", "水", "火", "门"];
+    const d = appState.dict;
+    const currentCandidates = d.handwritingCandidates.length > 0 ? d.handwritingCandidates : DEFAULT_HANDWRITING_CHARS;
+    const strokeCount = d.handwritingStrokes.length;
+    const topChar = d.handwritingCandidates.length > 0 ? d.handwritingCandidates[0] : null;
 
     return `
       <div class="dict-modal-overlay" id="dict-draw-modal-backdrop">
-        <div class="dict-modal-card p-6 space-y-4">
+        <div class="dict-modal-card p-5 sm:p-6 space-y-4">
+          <!-- Header Modal -->
           <div class="flex items-center justify-between pb-3 border-b border-white/10">
             <div class="flex items-center gap-2">
               <i data-lucide="pen-tool" class="w-5 h-5 text-amber-400"></i>
-              <h3 class="text-base font-bold text-paper">Bảng vẽ viết tay chữ Hán</h3>
+              <div>
+                <h3 class="text-base font-bold text-paper">Bảng vẽ viết tay chữ Hán</h3>
+                <p class="text-[11px] text-paper/40">Nhận diện nét vẽ theo thời gian thực (Google AI & HSK)</p>
+              </div>
             </div>
-            <button class="dict-btn-close-modal p-1.5 text-paper/50 hover:text-white rounded-lg">
-              <i data-lucide="x" class="w-5 h-5"></i>
-            </button>
+            <div class="flex items-center gap-2">
+              <span id="handwriting-stroke-count" class="text-xs px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-paper/70 font-mono">
+                ${strokeCount} nét
+              </span>
+              <button class="dict-btn-close-modal p-1.5 text-paper/50 hover:text-white rounded-lg transition" title="Đóng bảng vẽ">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
           </div>
 
+          <!-- Canvas Khung Mễ Tự Cách (米字格) -->
           <div class="flex flex-col items-center">
             <div class="mizige-box" id="modal-mizige-wrap">
               <div class="mizige-lines"></div>
@@ -4436,27 +4481,49 @@
               <canvas id="modal-draw-canvas" width="280" height="280" class="handwriting-canvas absolute inset-0 z-10"></canvas>
             </div>
 
-            <div class="flex items-center gap-3 mt-3">
-              <button id="modal-btn-undo-draw" class="glass px-3 py-1.5 rounded-xl text-xs text-paper/80 hover:text-white transition">
-                Hoàn tác nét
+            <!-- Nút chức năng dưới bảng vẽ -->
+            <div class="w-full max-w-[280px] flex items-center justify-between gap-2 mt-3">
+              <button id="modal-btn-undo-draw" class="glass px-2.5 py-1.5 rounded-xl text-xs text-paper/80 hover:text-white flex items-center gap-1 transition" title="Hoàn tác nét gần nhất">
+                <i data-lucide="undo-2" class="w-3.5 h-3.5"></i> Hoàn tác
               </button>
-              <button id="modal-btn-clear-draw" class="glass px-3 py-1.5 rounded-xl text-xs text-vermillion hover:bg-vermillion/10 transition">
-                Xóa toàn bộ
+              <button id="modal-btn-clear-draw" class="glass px-2.5 py-1.5 rounded-xl text-xs text-vermillion/90 hover:text-vermillion hover:bg-vermillion/10 flex items-center gap-1 transition" title="Xóa toàn bộ nét vẽ">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Xóa hết
+              </button>
+              <button id="modal-btn-search-first" class="bg-gold hover:bg-gold-light text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow-lg shadow-gold/20 ${
+                topChar ? "" : "opacity-50 cursor-not-allowed"
+              }" ${topChar ? "" : "disabled"} title="Tra cứu chữ nhận diện đầu tiên">
+                <i data-lucide="search" class="w-3.5 h-3.5"></i> ${topChar ? `Tìm "${topChar}"` : "Tìm chữ đầu tiên"}
               </button>
             </div>
           </div>
 
-          <div class="pt-2 border-t border-white/10">
-            <p class="text-xs text-paper/50 mb-2 font-medium">Gợi ý chữ Hán nhận diện nhanh:</p>
-            <div class="flex flex-wrap gap-2">
-              ${quickCandidates
-                .map(
-                  (char) => `
-                  <button class="w-9 h-9 rounded-xl glass text-lg hanzi font-bold text-paper hover:text-gold hover:border-gold/50 flex items-center justify-center transition" data-select-word="${char}">
-                    ${char}
-                  </button>
-                `
-                )
+          <!-- Gợi ý chữ Hán nhận diện -->
+          <div class="pt-3 border-t border-white/10 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-paper/60 font-medium">Gợi ý chữ Hán nhận diện:</span>
+                <span id="handwriting-status-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-paper/50 font-medium">
+                  ${strokeCount > 0 ? "✓ Đã nhận diện" : "✍️ Hãy viết chữ vào ô"}
+                </span>
+              </div>
+              <span id="handwriting-engine-badge" class="text-[10px] text-paper/40 font-mono">
+                ${strokeCount > 0 ? "Google IME" : "Sẵn sàng"}
+              </span>
+            </div>
+
+            <div id="handwriting-candidates-container" class="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-1">
+              ${currentCandidates
+                .map((char, idx) => {
+                  const isFirst = strokeCount > 0 && idx === 0;
+                  return `
+                    <button class="handwriting-cand-btn ${
+                      isFirst ? "handwriting-cand-first ring-2 ring-gold/40" : ""
+                    } w-10 h-10 sm:w-11 sm:h-11 rounded-xl glass text-lg sm:text-xl hanzi font-bold flex items-center justify-center transition"
+                      data-select-handwriting-char="${char}" title="Bấm để tra cứu chữ ${char}">
+                      ${char}
+                    </button>
+                  `;
+                })
                 .join("")}
             </div>
           </div>
@@ -4795,6 +4862,202 @@
     if (d.activeSubTab === "hanzi" && d.selectedChar) {
       initCanvasDrawing("handwriting-stroke-canvas", d.selectedChar);
     }
+
+    // Khởi tạo Canvas vẽ nét nếu modal viết tay đang mở
+    if (d.activeModal === "draw") {
+      initCanvasDrawing("modal-draw-canvas");
+    }
+  }
+
+  // --- ENGINE NHẬN DIỆN CHỮ VIẾT TAY (GOOGLE INPUT TOOLS & OFFLINE FALLBACK) ---
+  let recognitionDebounceTimer = null;
+
+  async function recognizeHandwritingStrokes() {
+    const d = appState.dict;
+    const countBadge = document.getElementById("handwriting-stroke-count");
+    const statusBadge = document.getElementById("handwriting-status-badge");
+    const engineBadge = document.getElementById("handwriting-engine-badge");
+    const firstSearchBtn = document.getElementById("modal-btn-search-first");
+
+    const strokeCount = d.handwritingStrokes.length;
+    if (countBadge) {
+      countBadge.textContent = `${strokeCount} nét`;
+    }
+
+    if (strokeCount === 0) {
+      d.handwritingCandidates = [];
+      if (statusBadge) {
+        statusBadge.innerHTML = `<span class="text-paper/50">✍️ Hãy viết chữ vào ô</span>`;
+      }
+      if (engineBadge) {
+        engineBadge.textContent = "Sẵn sàng";
+      }
+      if (firstSearchBtn) {
+        firstSearchBtn.disabled = true;
+        firstSearchBtn.classList.add("opacity-50", "cursor-not-allowed");
+        firstSearchBtn.innerHTML = `<i data-lucide="search" class="w-3.5 h-3.5"></i> Tìm chữ đầu tiên`;
+        refreshIcons();
+      }
+      renderHandwritingCandidates(DEFAULT_HANDWRITING_CHARS);
+      return;
+    }
+
+    if (statusBadge) {
+      statusBadge.innerHTML = `<span class="text-amber-400 flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> Đang nhận diện...</span>`;
+    }
+
+    // Chuẩn bị payload ink cho Google Input Tools Handwriting IME API
+    const ink = d.handwritingStrokes.map((stroke) => {
+      const xs = [];
+      const ys = [];
+      const ts = [];
+      const t0 = stroke[0] ? stroke[0].t || 0 : 0;
+      stroke.forEach((pt) => {
+        xs.push(Math.round(pt.x));
+        ys.push(Math.round(pt.y));
+        ts.push(Math.round(pt.t ? Math.max(0, pt.t - t0) : 0));
+      });
+      return [xs, ys, ts];
+    });
+
+    const payload = {
+      app_version: 0.4,
+      api_level: "537.36",
+      device: "537.36",
+      input_type: "0",
+      options: "enable_pre_space",
+      requests: [
+        {
+          writing_guide: {
+            writing_area_width: 280,
+            writing_area_height: 280,
+          },
+          pre_context: "",
+          max_num_results: 14,
+          max_completions: 0,
+          language: "zh",
+          ink: ink,
+        },
+      ],
+    };
+
+    let recognizedChars = [];
+    let isOnline = false;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2800);
+
+      const res = await fetch("https://inputtools.google.com/request?ime=handwriting&app=mobilesearch&cs=1&oe=UTF-8", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data[0] === "SUCCESS" && data[1] && data[1][0] && data[1][0][1]) {
+          const rawList = data[1][0][1];
+          const hanziRegex = /[\u4e00-\u9fa5]/;
+          const validChars = [];
+          rawList.forEach((item) => {
+            if (typeof item === "string" && hanziRegex.test(item)) {
+              const clean = item.trim();
+              if (clean && !validChars.includes(clean)) {
+                validChars.push(clean);
+              }
+            }
+          });
+          if (validChars.length > 0) {
+            recognizedChars = validChars;
+            isOnline = true;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Handwriting recognition online request failed, falling back to offline engine:", err);
+    }
+
+    // Fallback offline nếu online không trả về kết quả
+    if (!recognizedChars.length) {
+      recognizedChars = getOfflineHandwritingCandidates(strokeCount);
+      isOnline = false;
+    }
+
+    d.handwritingCandidates = recognizedChars;
+
+    // Cập nhật giao diện
+    if (statusBadge) {
+      statusBadge.innerHTML = isOnline
+        ? `<span class="text-emerald-400 flex items-center gap-1 font-semibold">✓ Đã nhận diện</span>`
+        : `<span class="text-amber-400 flex items-center gap-1 font-semibold">⚡ Offline (${strokeCount} nét)</span>`;
+    }
+    if (engineBadge) {
+      engineBadge.textContent = isOnline ? "Google IME (Online)" : "HSK Lexis (Offline)";
+    }
+
+    if (firstSearchBtn && recognizedChars.length > 0) {
+      firstSearchBtn.disabled = false;
+      firstSearchBtn.classList.remove("opacity-50", "cursor-not-allowed");
+      const topChar = recognizedChars[0];
+      firstSearchBtn.innerHTML = `<i data-lucide="search" class="w-3.5 h-3.5"></i> Tìm "${topChar}"`;
+      refreshIcons();
+    }
+
+    renderHandwritingCandidates(recognizedChars);
+  }
+
+  function renderHandwritingCandidates(chars) {
+    const container = document.getElementById("handwriting-candidates-container");
+    if (!container) return;
+
+    if (!chars || !chars.length) {
+      container.innerHTML = `
+        <div class="w-full py-2 text-center text-xs text-paper/40 italic">
+          Chưa nhận diện được chữ phù hợp, vui lòng vẽ tiếp hoặc hoàn tác...
+        </div>
+      `;
+      return;
+    }
+
+    const hasStrokes = appState.dict.handwritingStrokes.length > 0;
+
+    container.innerHTML = chars
+      .map((char, idx) => {
+        const isFirst = hasStrokes && idx === 0;
+        return `
+          <button class="handwriting-cand-btn ${
+            isFirst ? "handwriting-cand-first ring-2 ring-gold/40" : ""
+          } w-10 h-10 sm:w-11 sm:h-11 rounded-xl glass text-lg sm:text-xl hanzi font-bold flex items-center justify-center transition"
+            data-select-handwriting-char="${char}" title="Bấm để tra cứu chữ ${char}">
+            ${char}
+          </button>
+        `;
+      })
+      .join("");
+
+    container.querySelectorAll("[data-select-handwriting-char]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const char = btn.dataset.selectHandwritingChar;
+        handleSelectHandwritingChar(char);
+      });
+    });
+  }
+
+  function handleSelectHandwritingChar(char) {
+    if (!char) return;
+    const d = appState.dict;
+    d.query = char;
+    d.activeModal = null;
+    d.handwritingStrokes = [];
+    d.handwritingCandidates = [];
+    ProgressStore.addSearchHistory(char);
+    renderDict();
+    showToast(`Đã nhận diện & tra cứu chữ "${char}"`, "success");
   }
 
   // --- ENGINE VẼ NÉT TRÊN CANVAS (TOUCH & MOUSE) ---
@@ -4807,12 +5070,13 @@
     const d = appState.dict;
     let isDrawing = false;
     let currentStroke = [];
+    const isModal = canvasId === "modal-draw-canvas";
 
     const drawGuidelinesAndGhost = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Nếu có chữ mẫu mờ
-      if (d.showStrokeGuide && guideChar) {
+      // Nếu có chữ mẫu mờ (chỉ ở tab Hán tự)
+      if (d.showStrokeGuide && guideChar && !isModal) {
         ctx.save();
         ctx.font = "bold 190px 'Noto Sans SC', serif";
         ctx.fillStyle = "rgba(212, 160, 23, 0.16)";
@@ -4845,68 +5109,121 @@
 
     const getPos = (e) => {
       const rect = canvas.getBoundingClientRect();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
+      const clientX = e.touches && e.touches.length ? e.touches[0].clientX : (e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX);
+      const clientY = e.touches && e.touches.length ? e.touches[0].clientY : (e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY);
+      const scaleX = canvas.width / (rect.width || 1);
+      const scaleY = canvas.height / (rect.height || 1);
       return {
-        x: (clientX - rect.left) * scaleX,
-        y: (clientY - rect.top) * scaleY,
+        x: Math.round((clientX - rect.left) * scaleX),
+        y: Math.round((clientY - rect.top) * scaleY),
       };
     };
 
     const start = (e) => {
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       isDrawing = true;
       const pos = getPos(e);
-      currentStroke = [pos];
+      const now = Date.now();
+      currentStroke = [{ x: pos.x, y: pos.y, t: now }];
       d.handwritingStrokes.push(currentStroke);
       drawGuidelinesAndGhost();
     };
 
     const move = (e) => {
       if (!isDrawing) return;
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       const pos = getPos(e);
-      currentStroke.push(pos);
+      const now = Date.now();
+      currentStroke.push({ x: pos.x, y: pos.y, t: now });
       drawGuidelinesAndGhost();
     };
 
     const end = (e) => {
       if (!isDrawing) return;
-      e.preventDefault();
+      if (e && e.cancelable) e.preventDefault();
       isDrawing = false;
       currentStroke = [];
+
+      if (isModal) {
+        clearTimeout(recognitionDebounceTimer);
+        const countBadge = document.getElementById("handwriting-stroke-count");
+        if (countBadge) countBadge.textContent = `${d.handwritingStrokes.length} nét`;
+
+        const statusBadge = document.getElementById("handwriting-status-badge");
+        if (statusBadge) {
+          statusBadge.innerHTML = `<span class="text-amber-400 flex items-center gap-1.5"><span class="inline-block w-2 h-2 rounded-full bg-amber-400 animate-ping"></span> Đang nhận diện...</span>`;
+        }
+
+        recognitionDebounceTimer = setTimeout(() => {
+          recognizeHandwritingStrokes();
+        }, 150);
+      }
     };
 
     canvas.addEventListener("mousedown", start);
     canvas.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", end);
-
     canvas.addEventListener("touchstart", start, { passive: false });
     canvas.addEventListener("touchmove", move, { passive: false });
+
+    if (window.__hwEndListener) {
+      window.removeEventListener("mouseup", window.__hwEndListener);
+      window.removeEventListener("touchend", window.__hwEndListener);
+    }
+    window.__hwEndListener = end;
+    window.addEventListener("mouseup", end);
     window.addEventListener("touchend", end);
 
-    // Nút Hoàn tác & Xóa nét
-    document.getElementById("dict-btn-undo-stroke")?.addEventListener("click", () => {
-      d.handwritingStrokes.pop();
-      drawGuidelinesAndGhost();
-    });
+    if (isModal) {
+      // Gán sự kiện nút trong modal
+      document.getElementById("modal-btn-undo-draw")?.addEventListener("click", () => {
+        d.handwritingStrokes.pop();
+        drawGuidelinesAndGhost();
+        clearTimeout(recognitionDebounceTimer);
+        const countBadge = document.getElementById("handwriting-stroke-count");
+        if (countBadge) countBadge.textContent = `${d.handwritingStrokes.length} nét`;
+        recognitionDebounceTimer = setTimeout(() => {
+          recognizeHandwritingStrokes();
+        }, 100);
+      });
 
-    document.getElementById("dict-btn-clear-canvas")?.addEventListener("click", () => {
-      d.handwritingStrokes = [];
-      drawGuidelinesAndGhost();
-    });
+      document.getElementById("modal-btn-clear-draw")?.addEventListener("click", () => {
+        d.handwritingStrokes = [];
+        d.handwritingCandidates = [];
+        drawGuidelinesAndGhost();
+        clearTimeout(recognitionDebounceTimer);
+        recognizeHandwritingStrokes();
+      });
 
-    document.getElementById("modal-btn-undo-draw")?.addEventListener("click", () => {
-      d.handwritingStrokes.pop();
-      drawGuidelinesAndGhost();
-    });
+      document.getElementById("modal-btn-search-first")?.addEventListener("click", () => {
+        if (d.handwritingCandidates && d.handwritingCandidates.length > 0) {
+          handleSelectHandwritingChar(d.handwritingCandidates[0]);
+        } else if (d.handwritingStrokes.length > 0) {
+          const fallback = getOfflineHandwritingCandidates(d.handwritingStrokes.length);
+          if (fallback.length > 0) {
+            handleSelectHandwritingChar(fallback[0]);
+          }
+        } else {
+          showToast("Vui lòng viết nét chữ trước khi tra cứu.", "warning");
+        }
+      });
 
-    document.getElementById("modal-btn-clear-draw")?.addEventListener("click", () => {
-      d.handwritingStrokes = [];
-      drawGuidelinesAndGhost();
-    });
+      document.querySelectorAll("#handwriting-candidates-container [data-select-handwriting-char]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          handleSelectHandwritingChar(btn.dataset.selectHandwritingChar);
+        });
+      });
+    } else {
+      // Nút Hoàn tác & Xóa nét trên tab Hán tự
+      document.getElementById("dict-btn-undo-stroke")?.addEventListener("click", () => {
+        d.handwritingStrokes.pop();
+        drawGuidelinesAndGhost();
+      });
+
+      document.getElementById("dict-btn-clear-canvas")?.addEventListener("click", () => {
+        d.handwritingStrokes = [];
+        drawGuidelinesAndGhost();
+      });
+    }
   }
 
   // --- ENGINE NHẬN DIỆN GIỌNG NÓI (WEB SPEECH RECOGNITION API) ---
