@@ -444,41 +444,134 @@ const SENTENCE_DATA = [
 ];
 
 const DataStore = {
+  _vocabIndexedLen: -1,
+  _vocabByLevel: new Map(),
+  _vocabByTopic: new Map(),
+  _vocabById: new Map(),
+  _sentencesByLevel: new Map(),
+  _sentencesById: new Map(),
+  _sentenceIndexedLen: -1,
+
+  _ensureVocabIndex() {
+    if (typeof VOCAB_DATA === "undefined") return;
+    if (this._vocabIndexedLen === VOCAB_DATA.length) return;
+
+    this._vocabByLevel.clear();
+    this._vocabByTopic.clear();
+    this._vocabById.clear();
+
+    for (let i = 0; i < VOCAB_DATA.length; i++) {
+      const w = VOCAB_DATA[i];
+      // Index by level
+      let lvlList = this._vocabByLevel.get(w.level);
+      if (!lvlList) {
+        lvlList = [];
+        this._vocabByLevel.set(w.level, lvlList);
+      }
+      lvlList.push(w);
+
+      // Index by topic
+      if (w.topicId) {
+        let topicList = this._vocabByTopic.get(w.topicId);
+        if (!topicList) {
+          topicList = [];
+          this._vocabByTopic.set(w.topicId, topicList);
+        }
+        topicList.push(w);
+      }
+
+      // Index by ID
+      this._vocabById.set(w.id, w);
+    }
+
+    this._vocabIndexedLen = VOCAB_DATA.length;
+  },
+
+  _ensureSentenceIndex() {
+    if (typeof SENTENCE_DATA === "undefined") return;
+    if (this._sentenceIndexedLen === SENTENCE_DATA.length) return;
+
+    this._sentencesByLevel.clear();
+    this._sentencesById.clear();
+
+    for (let i = 0; i < SENTENCE_DATA.length; i++) {
+      const s = SENTENCE_DATA[i];
+      let list = this._sentencesByLevel.get(s.level);
+      if (!list) {
+        list = [];
+        this._sentencesByLevel.set(s.level, list);
+      }
+      list.push(s);
+      this._sentencesById.set(s.id, s);
+    }
+
+    this._sentenceIndexedLen = SENTENCE_DATA.length;
+  },
+
   getEnabledLevels() {
     return HSK_LEVELS.filter((level) => level.enabled);
   },
+
   getLevel(id) {
     return HSK_LEVELS.find((level) => level.id === Number(id)) || null;
   },
+
   getTopicsByLevel(levelId) {
     return TOPICS.filter((topic) => topic.level === Number(levelId));
   },
+
   getTopic(topicId) {
     return TOPICS.find((topic) => topic.id === topicId) || null;
   },
+
   getVocab({ level, topicId, search } = {}) {
+    this._ensureVocabIndex();
     const query = (search || "").trim().toLowerCase();
-    return VOCAB_DATA.filter((word) => {
+
+    // Xác định nguồn mảng cơ sở nhanh nhất
+    let baseList = null;
+    if (topicId && topicId !== "all") {
+      baseList = this._vocabByTopic.get(topicId) || [];
+    } else if (level != null) {
+      baseList = this._vocabByLevel.get(Number(level)) || [];
+    } else {
+      baseList = VOCAB_DATA;
+    }
+
+    // Nếu không cần lọc thêm điều kiện nào
+    if (!query && (topicId === "all" || !topicId) && level == null) {
+      return baseList;
+    }
+
+    const trimmedSearch = (search || "").trim();
+    return baseList.filter((word) => {
       if (level != null && word.level !== Number(level)) return false;
-      if (topicId && word.topicId !== topicId) return false;
+      if (topicId && topicId !== "all" && word.topicId !== topicId) return false;
       if (!query) return true;
       return (
-        word.hanzi.includes(search.trim()) ||
+        word.hanzi.includes(trimmedSearch) ||
         word.pinyin.toLowerCase().includes(query) ||
         word.meaning.toLowerCase().includes(query)
       );
     });
   },
+
   getVocabById(id) {
-    return VOCAB_DATA.find((word) => word.id === Number(id)) || null;
+    this._ensureVocabIndex();
+    return this._vocabById.get(Number(id)) || VOCAB_DATA.find((w) => w.id === Number(id)) || null;
   },
+
   getSentences({ level } = {}) {
+    this._ensureSentenceIndex();
     if (level == null) return SENTENCE_DATA;
-    return SENTENCE_DATA.filter((s) => s.level === Number(level));
+    return this._sentencesByLevel.get(Number(level)) || [];
   },
+
   getSentenceById(id) {
-    return SENTENCE_DATA.find((s) => s.id === Number(id)) || null;
+    this._ensureSentenceIndex();
+    return this._sentencesById.get(Number(id)) || SENTENCE_DATA.find((s) => s.id === Number(id)) || null;
   },
+
   getSentencesForVocab(hanzi, level) {
     const list = this.getSentences({ level });
     return list.filter((s) => {
@@ -486,6 +579,7 @@ const DataStore = {
       return fullText.includes(hanzi);
     });
   },
+
   getReadings({ level, type } = {}) {
     if (typeof READING_DATA === "undefined") return [];
     return READING_DATA.filter((r) => {
@@ -494,6 +588,7 @@ const DataStore = {
       return true;
     });
   },
+
   getReadingById(id) {
     if (typeof READING_DATA === "undefined") return null;
     return READING_DATA.find((r) => r.id === id) || null;
