@@ -2606,6 +2606,7 @@
       el.addEventListener("click", () => {
         const mode = el.dataset.startGame;
         startArcadeSession(mode);
+        focusArcadeInput();
       });
     });
   }
@@ -2800,6 +2801,7 @@
   // ============================================================
   function renderArcadeArena() {
     const t = appState.typing;
+    const isBrush = t.gameMode === "brush";
 
     dom.views.typing.innerHTML = `
       <div id="arcade-play-arena" class="arcade-container flex flex-col justify-between p-3 sm:p-5 relative animate-fade-in">
@@ -2880,36 +2882,8 @@
           </div>
         </div>
 
-        <!-- KHU VỰC THẦN BÚT: BẢNG VIẾT NÉT TRÊN TUYẾT (CHỈ HIỆN Ở CHẾ ĐỘ BRUSH) -->
-        ${
-          t.gameMode === "brush"
-            ? `
-            <div class="relative z-25 mt-auto mb-2 flex flex-col items-center">
-              <div class="glass px-4 py-2 rounded-2xl flex items-center gap-3 border-amber-400/40 bg-black/60 shadow-2xl">
-                <span class="text-xs text-amber-300 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <i data-lucide="pen-tool" class="w-3.5 h-3.5"></i> Chữ mục tiêu:
-                </span>
-                <span id="brush-target-char" class="hanzi text-2xl font-black text-white px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40">
-                  ${t.targetFallingWord ? t.targetFallingWord.word.hanzi : "---"}
-                </span>
-                <button id="brush-btn-strike" class="bg-amber-500 hover:bg-amber-400 text-ink font-bold px-4 py-1.5 rounded-xl text-xs shadow-md transition flex items-center gap-1">
-                  <span>Hạ chữ (Space/Click)</span>
-                  <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                </button>
-              </div>
-            </div>`
-            : ""
-        }
-
-        <!-- LIVE TYPING INDICATOR FLOATING ABOVE PANDA -->
-        <div id="arcade-typing-indicator" class="arcade-typing-bar">
-          <span class="text-xs text-paper/50 font-sans font-medium mr-1">Đang gõ:</span>
-          <span id="arcade-typed-chars" class="text-sky-300 font-bold font-mono">${t.currentInput || ""}</span>
-          <span class="typing-caret"></span>
-        </div>
-
         <!-- NHÂN VẬT GẤU TRÚC CANH GÁC TRÊN TUYẾT Ở GÓC PHẢI DƯỚI -->
-        <div id="arcade-panda-sprite" class="arcade-panda-warrior">
+        <div id="arcade-panda-sprite" class="arcade-panda-warrior pointer-events-none">
           ${
             t.gameMode === "blade"
               ? getPandaInGameWarriorSvg(t.isPandaThrowing)
@@ -2919,6 +2893,102 @@
 
         <!-- LAYER CHỮ RƠI & PHI ĐAO ĐỘNG (ĐƯỢC CẬP NHẬT QUA LOOP) -->
         <div id="arcade-dynamic-layer" class="absolute inset-0 pointer-events-none z-20 overflow-hidden"></div>
+
+        <!-- ARCADE INPUT DOCK: BỘ NHẬP LIỆU BÀN PHÍM ĐIỆN THOẠI & MÁY TÍNH -->
+        <div id="arcade-input-container" class="arcade-input-dock mt-auto mb-1.5 sm:mb-3 flex flex-col items-center gap-1.5 sm:gap-2 w-full px-1 sm:px-2 z-35">
+          ${
+            isBrush
+              ? `
+              <!-- Hàng 1 Thần Bút: Chữ mục tiêu + Nút hạ chữ một chạm -->
+              <div class="glass px-3 sm:px-4 py-1.5 sm:py-2 rounded-2xl flex items-center justify-between gap-2 border-amber-400/40 bg-black/75 shadow-2xl max-w-md w-full">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-amber-300 font-bold uppercase tracking-wider flex items-center gap-1">
+                    <i data-lucide="pen-tool" class="w-3.5 h-3.5"></i> Mục tiêu:
+                  </span>
+                  <span id="brush-target-char" class="hanzi text-xl sm:text-2xl font-black text-white px-2.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/40">
+                    ${t.targetFallingWord ? t.targetFallingWord.word.hanzi : "---"}
+                  </span>
+                </div>
+                <button id="brush-btn-strike" type="button" class="bg-amber-500 hover:bg-amber-400 text-ink font-bold px-3 sm:px-4 py-1.5 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1 shrink-0 active:scale-95">
+                  <span>Hạ chữ (Space/Chạm)</span>
+                  <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+
+              <!-- Hàng 2 Thần Bút: Thanh nhập bàn phím điện thoại & máy tính -->
+              <div class="arcade-typing-bar-interactive mode-brush flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl max-w-md w-full">
+                <i data-lucide="keyboard" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                <span class="text-xs text-paper/60 font-medium whitespace-nowrap hidden sm:inline">Thần Bút:</span>
+                <input
+                  id="arcade-virtual-input"
+                  type="text"
+                  inputmode="text"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  enterkeyhint="go"
+                  placeholder="Gõ pinyin, chữ Hán hoặc phím Space..."
+                  value="${t.currentInput || ""}"
+                  class="bg-transparent border-none outline-none text-amber-300 font-bold font-mono text-sm sm:text-base flex-1 min-w-0 placeholder:text-paper/40 placeholder:font-sans placeholder:text-xs sm:placeholder:text-sm"
+                />
+                <button
+                  id="arcade-clear-input-btn"
+                  type="button"
+                  class="${t.currentInput ? "" : "hidden"} p-1 rounded-lg text-paper/40 hover:text-white transition shrink-0"
+                  title="Xóa chữ"
+                >
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+
+              <div class="text-[10px] sm:text-xs text-paper/40 text-center font-medium">
+                💡 Nhận bàn phím điện thoại · Gõ pinyin / chữ Hán hoặc ấn Space/Enter để hạ chữ rơi
+              </div>
+              `
+              : `
+              <!-- Phi Đao: Thanh gõ pinyin nhận bàn phím điện thoại & máy tính -->
+              <div class="arcade-typing-bar-interactive mode-blade flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl max-w-md w-full">
+                <i data-lucide="swords" class="w-4 h-4 text-sky-400 shrink-0"></i>
+                <span class="text-xs text-paper/60 font-medium whitespace-nowrap hidden sm:inline">Phi Đao:</span>
+                <input
+                  id="arcade-virtual-input"
+                  type="text"
+                  inputmode="text"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  enterkeyhint="go"
+                  placeholder="Chạm đây để mở phím & gõ (vd: nihao)..."
+                  value="${t.currentInput || ""}"
+                  class="bg-transparent border-none outline-none text-sky-300 font-bold font-mono text-sm sm:text-base flex-1 min-w-0 placeholder:text-paper/40 placeholder:font-sans placeholder:text-xs sm:placeholder:text-sm"
+                />
+                <button
+                  id="arcade-clear-input-btn"
+                  type="button"
+                  class="${t.currentInput ? "" : "hidden"} p-1 rounded-lg text-paper/40 hover:text-white transition shrink-0"
+                  title="Xóa chữ"
+                >
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+                <button
+                  id="blade-btn-shoot"
+                  type="button"
+                  class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-ink font-bold text-xs shrink-0 shadow-md transition flex items-center gap-1 active:scale-95"
+                  title="Phóng phi đao"
+                >
+                  <span>Phóng</span>
+                  <i data-lucide="zap" class="w-3 h-3"></i>
+                </button>
+              </div>
+
+              <div class="text-[10px] sm:text-xs text-paper/40 text-center font-medium">
+                💡 Nhận bàn phím điện thoại · Gõ pinyin (không dấu), chữ Hán hoặc tiếng Việt
+              </div>
+              `
+          }
+        </div>
 
         <!-- POPUP KHI TẠM DỪNG -->
         ${
@@ -2963,6 +3033,13 @@
     const hudBar = document.getElementById("hud-progress-bar");
     if (hudBar && t.playMode === "stage") {
       hudBar.style.width = `${(t.progressCount / t.targetTotal) * 100}%`;
+    }
+
+    if (t.gameMode === "brush") {
+      const brushCharEl = document.getElementById("brush-target-char");
+      if (brushCharEl) {
+        brushCharEl.textContent = t.targetFallingWord ? t.targetFallingWord.word.hanzi : "---";
+      }
     }
 
     const currentInputNoTone = normalizePinyinRaw(t.currentInput.trim());
@@ -3018,17 +3095,20 @@
 
   function initArenaControlsEvents() {
     const t = appState.typing;
+    const inputEl = document.getElementById("arcade-virtual-input");
 
     document.getElementById("btn-toggle-sound")?.addEventListener("click", () => {
       t.soundEnabled = !t.soundEnabled;
       showToast(t.soundEnabled ? "Đã bật âm thanh 🔊" : "Đã tắt âm thanh 🔇");
       renderArcadeArena();
+      focusArcadeInput();
     });
 
     document.getElementById("btn-toggle-pinyin")?.addEventListener("click", () => {
       t.showPinyin = !t.showPinyin;
       showToast(t.showPinyin ? "Đã hiện Pinyin trên chữ rơi" : "Đã ẩn Pinyin");
       renderArcadeArena();
+      focusArcadeInput();
     });
 
     document.getElementById("btn-toggle-pause")?.addEventListener("click", () => {
@@ -3039,6 +3119,7 @@
     document.getElementById("pause-btn-resume")?.addEventListener("click", () => {
       t.isPaused = false;
       renderArcadeArena();
+      focusArcadeInput();
     });
 
     const exitToLobby = () => {
@@ -3053,11 +3134,187 @@
     document.getElementById("btn-exit-lobby")?.addEventListener("click", exitToLobby);
     document.getElementById("pause-btn-quit")?.addEventListener("click", exitToLobby);
 
-    document.getElementById("brush-btn-strike")?.addEventListener("click", () => {
+    // Xử lý nút Hạ chữ trong Thần Bút
+    document.getElementById("brush-btn-strike")?.addEventListener("click", (e) => {
+      e.stopPropagation();
       if (t.targetFallingWord) {
         launchArcadeProjectile(t.targetFallingWord, "brush");
+        t.currentInput = "";
+        if (inputEl) inputEl.value = "";
+        updateTypingInputDisplay();
       }
+      focusArcadeInput();
     });
+
+    // Xử lý nút Phóng đao trong Phi Đao
+    document.getElementById("blade-btn-shoot")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      shootBladeAtTarget();
+      focusArcadeInput();
+    });
+
+    // Xử lý nút Xóa nhanh ký tự
+    document.getElementById("arcade-clear-input-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      t.currentInput = "";
+      if (inputEl) inputEl.value = "";
+      updateTypingInputDisplay();
+      focusArcadeInput();
+    });
+
+    // Chạm vào bất kỳ vị trí nào trên sàn đấu game để kích hoạt bàn phím ảo điện thoại
+    const arenaEl = document.getElementById("arcade-play-arena");
+    const handleArenaTap = (e) => {
+      if (e.target.closest("button, a, input, select")) return;
+      focusArcadeInput();
+    };
+    arenaEl?.addEventListener("click", handleArenaTap);
+    arenaEl?.addEventListener("touchend", handleArenaTap);
+
+    // Lắng nghe sự kiện bàn phím ảo & vật lý trên ô input
+    if (inputEl) {
+      inputEl.addEventListener("input", (e) => {
+        if (!t || t.screen !== "game" || t.isPaused) return;
+
+        const val = e.target.value;
+        t.currentInput = val;
+
+        const clearBtn = document.getElementById("arcade-clear-input-btn");
+        if (clearBtn) clearBtn.classList.toggle("hidden", !val);
+
+        // Trong Thần Bút: nếu gõ phím cách (Space) thì phóng bút hạ chữ mục tiêu
+        if (t.gameMode === "brush" && (val.endsWith(" ") || val === " ")) {
+          if (t.targetFallingWord) {
+            launchArcadeProjectile(t.targetFallingWord, "brush");
+          }
+          e.target.value = "";
+          t.currentInput = "";
+          if (clearBtn) clearBtn.classList.add("hidden");
+          return;
+        }
+
+        // Kiểm tra so khớp từ rơi
+        const matched = checkAndThrowBlade(val);
+        if (matched) {
+          e.target.value = "";
+          t.currentInput = "";
+          if (clearBtn) clearBtn.classList.add("hidden");
+        }
+      });
+
+      inputEl.addEventListener("compositionend", (e) => {
+        if (!t || t.screen !== "game" || t.isPaused) return;
+        t.currentInput = e.target.value;
+        const matched = checkAndThrowBlade(e.target.value);
+        if (matched) {
+          e.target.value = "";
+          t.currentInput = "";
+          const clearBtn = document.getElementById("arcade-clear-input-btn");
+          if (clearBtn) clearBtn.classList.add("hidden");
+        }
+      });
+
+      inputEl.addEventListener("keydown", (e) => {
+        if (!t || t.screen !== "game" || t.isPaused) return;
+
+        if (e.key === "Escape") {
+          e.preventDefault();
+          t.isPaused = !t.isPaused;
+          renderArcadeArena();
+          return;
+        }
+
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (t.gameMode === "brush") {
+            if (t.targetFallingWord) {
+              launchArcadeProjectile(t.targetFallingWord, "brush");
+              e.target.value = "";
+              t.currentInput = "";
+              document.getElementById("arcade-clear-input-btn")?.classList.add("hidden");
+            }
+          } else {
+            shootBladeAtTarget();
+          }
+          return;
+        }
+
+        if (e.key === " " && t.gameMode === "brush") {
+          e.preventDefault();
+          if (t.targetFallingWord) {
+            launchArcadeProjectile(t.targetFallingWord, "brush");
+            e.target.value = "";
+            t.currentInput = "";
+            document.getElementById("arcade-clear-input-btn")?.classList.add("hidden");
+          }
+          return;
+        }
+      });
+
+      // Tự động cuộn nhẹ để giữ khung gõ hiển thị an toàn khi bàn phím ảo xuất hiện
+      inputEl.addEventListener("focus", () => {
+        if (window.innerWidth < 640) {
+          setTimeout(() => {
+            inputEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }, 300);
+        }
+      });
+    }
+
+    if (!t.isPaused && t.screen === "game") {
+      focusArcadeInput();
+    }
+  }
+
+  function focusArcadeInput() {
+    const inputEl = document.getElementById("arcade-virtual-input");
+    if (!inputEl) return;
+    try {
+      inputEl.focus({ preventScroll: true });
+    } catch (_) {
+      inputEl.focus();
+    }
+  }
+
+  function shootBladeAtTarget() {
+    const t = appState.typing;
+    if (!t || !t.fallingWords.length) return false;
+
+    // 1. So khớp chính xác hoặc theo nghĩa
+    if (t.currentInput && t.currentInput.trim()) {
+      const directMatch = checkAndThrowBlade(t.currentInput);
+      if (directMatch) return true;
+
+      // 2. So khớp theo tiền tố Pinyin khi người dùng gõ dở và ấn Phóng
+      const inputNoTone = normalizePinyinRaw(t.currentInput.trim());
+      if (inputNoTone.length > 0) {
+        let bestTarget = null;
+        let maxY = -999;
+        for (const fw of t.fallingWords) {
+          const pinyinNoTone = normalizePinyinRaw(fw.word.pinyin);
+          if (pinyinNoTone.startsWith(inputNoTone) && fw.y > maxY) {
+            maxY = fw.y;
+            bestTarget = fw;
+          }
+        }
+        if (bestTarget) {
+          launchArcadeProjectile(bestTarget, t.gameMode === "brush" ? "brush" : "blade");
+          t.currentInput = "";
+          updateTypingInputDisplay();
+          return true;
+        }
+      }
+    }
+
+    // 3. Hiệu ứng rung báo hiệu chưa khớp
+    const inputEl = document.getElementById("arcade-virtual-input");
+    const container = inputEl?.closest(".arcade-typing-bar-interactive");
+    if (container) {
+      container.classList.remove("arcade-input-shake");
+      void container.offsetWidth;
+      container.classList.add("arcade-input-shake");
+    }
+    return false;
   }
 
   // ============================================================
@@ -3073,46 +3330,76 @@
       const t = appState.typing;
       if (!t || t.screen !== "game" || t.isPaused || appState.currentTab !== "typing") return;
 
-      const key = e.key;
+      const inputEl = document.getElementById("arcade-virtual-input");
 
-      if (key === "Escape") {
+      if (e.key === "Escape") {
         e.preventDefault();
         t.isPaused = !t.isPaused;
         renderArcadeArena();
         return;
       }
 
-      if (key === " " && t.gameMode === "brush") {
-        e.preventDefault();
-        if (t.targetFallingWord) {
-          launchArcadeProjectile(t.targetFallingWord, "brush");
-        }
+      // Nếu người dùng đang focus trực tiếp trên ô input, sự kiện của input sẽ xử lý
+      if (document.activeElement === inputEl) {
         return;
       }
 
-      if (key === "Backspace") {
+      if (e.key === " " && t.gameMode === "brush") {
         e.preventDefault();
-        if (t.currentInput.length > 0) {
-          t.currentInput = t.currentInput.slice(0, -1);
+        if (t.targetFallingWord) {
+          launchArcadeProjectile(t.targetFallingWord, "brush");
+          t.currentInput = "";
           updateTypingInputDisplay();
         }
         return;
       }
 
-      if (e.ctrlKey || e.altKey || e.metaKey || (key.length > 1 && !/^[\u4e00-\u9fa5]$/.test(key))) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (t.gameMode === "brush") {
+          if (t.targetFallingWord) {
+            launchArcadeProjectile(t.targetFallingWord, "brush");
+            t.currentInput = "";
+            updateTypingInputDisplay();
+          }
+        } else {
+          shootBladeAtTarget();
+        }
         return;
       }
 
-      t.currentInput += key;
-      updateTypingInputDisplay();
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        if (t.currentInput.length > 0) {
+          t.currentInput = t.currentInput.slice(0, -1);
+          updateTypingInputDisplay();
+        }
+        focusArcadeInput();
+        return;
+      }
 
+      if (e.ctrlKey || e.altKey || e.metaKey || (e.key.length > 1 && !/^[\u4e00-\u9fa5]$/.test(e.key))) {
+        return;
+      }
+
+      focusArcadeInput();
+      t.currentInput += e.key;
+      updateTypingInputDisplay();
       checkAndThrowBlade(t.currentInput);
     });
   }
 
   function updateTypingInputDisplay() {
-    const el = document.getElementById("arcade-typed-chars");
-    if (el) el.textContent = appState.typing.currentInput || "";
+    const t = appState.typing;
+    if (!t) return;
+    const inputEl = document.getElementById("arcade-virtual-input");
+    if (inputEl && inputEl.value !== t.currentInput) {
+      inputEl.value = t.currentInput || "";
+    }
+    const clearBtn = document.getElementById("arcade-clear-input-btn");
+    if (clearBtn) {
+      clearBtn.classList.toggle("hidden", !t.currentInput);
+    }
   }
 
   function checkAndThrowBlade(input) {
@@ -3153,7 +3440,7 @@
 
     if (matchedIndex !== -1) {
       const targetWordItem = t.fallingWords[matchedIndex];
-      launchArcadeProjectile(targetWordItem, "blade");
+      launchArcadeProjectile(targetWordItem, t.gameMode === "brush" ? "brush" : "blade");
       t.currentInput = "";
       updateTypingInputDisplay();
       return true;
@@ -3180,8 +3467,10 @@
       }, 200);
     }
 
-    const startX = 84;
-    const startY = 520;
+    const arenaEl = document.getElementById("arcade-play-arena");
+    const arenaH = arenaEl ? arenaEl.clientHeight : 600;
+    const startX = window.innerWidth < 640 ? 80 : 84;
+    const startY = Math.max(200, arenaH - 95);
 
     t.projectiles.push({
       startX,
@@ -3307,6 +3596,7 @@
 
     document.getElementById("endgame-btn-replay")?.addEventListener("click", () => {
       startArcadeSession(t.gameMode);
+      focusArcadeInput();
     });
 
     document.getElementById("endgame-btn-lobby")?.addEventListener("click", () => {
