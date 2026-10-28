@@ -4,6 +4,18 @@
  * Hỗ trợ đồng bộ hóa thời gian thực thông qua Event Dispatcher.
  */
 
+/**
+ * Chuẩn hóa từ khóa tìm kiếm: loại bỏ khoảng trắng và toàn bộ dấu câu tiếng Trung & tiếng Anh ở 2 đầu
+ */
+function cleanSearchQuery(text) {
+  if (!text || typeof text !== "string") return "";
+  return text
+    .replace(/^[。，！？、.,!?;:"'“”‘’()（）\[\]【】\s]+/g, "")
+    .replace(/[。，！？、.,!?;:"'“”‘’()（）\[\]【】\s]+$/g, "")
+    .trim();
+}
+window.cleanSearchQuery = cleanSearchQuery;
+
 const ProgressStore = (() => {
   const STORAGE_KEY = "hsk-progress-v2";
   const LEGACY_KEY = "hsk-progress-v1";
@@ -327,10 +339,30 @@ const ProgressStore = (() => {
     // ================= TỪ ĐIỂN: LỊCH SỬ TRA CỨU & THẺ TỪ CỦA TÔI =================
     getSearchHistory() {
       try {
+        const defaultList = ["打", "起", "话", "工作", "朋友", "喜欢"];
         const raw = localStorage.getItem("hsk-search-history");
-        if (!raw) return ["打", "起", "话", "工作", "朋友", "喜欢"]; // Dữ liệu mẫu ban đầu hữu ích
+        if (!raw) return defaultList;
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
+        if (!Array.isArray(parsed)) return defaultList;
+
+        // Tự động làm sạch các mục bị dính dấu câu (。, ., ?, ,...) đã lưu trong localStorage
+        const cleaned = [];
+        let modified = false;
+        for (const item of parsed) {
+          const c = cleanSearchQuery(item);
+          if (c) {
+            if (!cleaned.includes(c)) {
+              cleaned.push(c);
+            }
+          }
+          if (c !== item) {
+            modified = true;
+          }
+        }
+        if (modified || cleaned.length !== parsed.length) {
+          localStorage.setItem("hsk-search-history", JSON.stringify(cleaned));
+        }
+        return cleaned.length > 0 ? cleaned : defaultList;
       } catch {
         return ["打", "起", "话", "工作", "朋友"];
       }
@@ -338,7 +370,7 @@ const ProgressStore = (() => {
 
     addSearchHistory(term) {
       if (!term || typeof term !== "string") return;
-      const clean = term.trim();
+      const clean = cleanSearchQuery(term);
       if (!clean) return;
       try {
         let history = this.getSearchHistory().filter((x) => x !== clean);
@@ -352,7 +384,8 @@ const ProgressStore = (() => {
 
     removeSearchHistory(term) {
       try {
-        let history = this.getSearchHistory().filter((x) => x !== term);
+        const clean = cleanSearchQuery(term);
+        let history = this.getSearchHistory().filter((x) => x !== clean && x !== term);
         localStorage.setItem("hsk-search-history", JSON.stringify(history));
         return history;
       } catch {

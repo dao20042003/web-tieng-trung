@@ -1444,5 +1444,9 @@ body {
   }
 }
 
+/* Ẩn thanh tìm kiếm trùng lặp góc trên bên phải khi đang mở Từ điển */
+body.is-dict-view #top-search-bar-container {
+  display: none !important;
+}
 
 

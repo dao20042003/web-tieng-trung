@@ -89,6 +89,7 @@
     // Header & Global Search
     crumb: document.getElementById("crumb"),
     pageTitle: document.getElementById("page-title"),
+    topSearchBarContainer: document.getElementById("top-search-bar-container"),
     searchInput: document.getElementById("search-input"),
     searchClearBtn: document.getElementById("search-clear-btn"),
     toastContainer: document.getElementById("toast-container"),
@@ -277,6 +278,13 @@
     }
 
     appState.currentTab = targetTab;
+
+    // Ẩn thanh tìm kiếm trùng lặp ở góc trên bên phải khi vào từ điển
+    document.body.classList.toggle("is-dict-view", targetTab === "dict");
+    const topSearch = dom.topSearchBarContainer || document.getElementById("top-search-bar-container");
+    if (topSearch) {
+      topSearch.classList.toggle("hidden", targetTab === "dict");
+    }
 
     // Chuyển đổi hiển thị các section container
     Object.entries(dom.views).forEach(([tabName, el]) => {
@@ -3689,7 +3697,10 @@
     "备": "BỊ", "帮": "BANG", "助": "TRỢ", "运": "VẬN", "动": "ĐỘNG",
     "医": "Y", "院": "VIỆN", "校": "HIỆU", "馆": "QUÁN", "机": "CƠ",
     "场": "TRƯỜNG", "店": "ĐIẾM", "房": "PHÒNG", "杯": "BÔI", "盘": "BÀN",
-    "包": "BAO", "衣": "Y", "服": "PHỤC"
+    "包": "BAO", "衣": "Y", "服": "PHỤC", "回": "HỒI", "母": "MẪU",
+    "甲": "GIÁP", "还": "HOÀN / HẢI", "父": "PHỤ", "亲": "THÂN", "答": "ĐÁP",
+    "道": "ĐẠO", "同": "ĐỒNG", "东": "ĐÔNG", "西": "TÂY", "南": "NAM",
+    "北": "BẮC", "乙": "ẤT", "丙": "BÍNH", "丁": "ĐINH"
   };
 
   const GRAMMAR_POINTS = [
@@ -3857,9 +3868,59 @@
     }
   ];
 
+  // --- HÀM THỰC THI TRA CỨU TỪ ĐIỂN TẬP TRUNG (CENTRALIZED SEARCH) ---
+  function performDictionarySearch(term) {
+    const clean = cleanSearchQuery(term);
+    if (!clean) return;
+
+    const d = appState.dict;
+    d.query = clean;
+
+    // Tự động chuyển sang chế độ Tiếng Trung nếu từ khóa chứa chữ Hán
+    if (/[\u4e00-\u9fa5]/.test(clean)) {
+      d.langMode = "cn";
+    }
+
+    // Đóng toàn bộ các modal đang mở (bảng vẽ viết tay, quét ảnh OCR, bộ thủ, thẻ từ)
+    d.activeModal = null;
+    d.handwritingStrokes = [];
+    d.handwritingCandidates = [];
+
+    // Tìm kiếm kết quả từ vựng
+    const words = searchDictWords(clean, d.langMode);
+    if (words.length > 0) {
+      d.activeSubTab = "vocab";
+    } else if (/[\u4e00-\u9fa5]/.test(clean)) {
+      // Nếu là chữ Hán đơn chưa có từ ghép tương ứng, tự động mở subtab Hán tự để xem số nét, bộ thủ và tập viết
+      d.activeSubTab = "hanzi";
+    } else {
+      d.activeSubTab = "vocab";
+    }
+
+    // Tách chữ Hán đầu tiên để kích hoạt hiển thị trong tab Hán tự
+    const chars = clean.match(/[\u4e00-\u9fa5]/g);
+    if (chars && chars.length) {
+      d.selectedChar = chars[0];
+    }
+
+    // Lưu vào lịch sử tra cứu gần đây (đã được làm sạch)
+    ProgressStore.addSearchHistory(clean);
+
+    // Render lại giao diện Từ điển (ẩn màn hình chờ, hiển thị trực tiếp kết quả)
+    renderDict();
+
+    // Đồng bộ vào đúng ô input tìm kiếm chính của Từ điển
+    const inputEl = document.getElementById("dict-search-input");
+    if (inputEl) {
+      inputEl.value = clean;
+    }
+
+    showToast(`Đã tra cứu: "${clean}"`, "success");
+  }
+
   function searchDictWords(query, langMode = "cn") {
     if (!query || typeof query !== "string") return [];
-    const qRaw = query.trim();
+    const qRaw = cleanSearchQuery(query);
     if (!qRaw) return [];
     const qLower = qRaw.toLowerCase();
     const qNormVi = normalizeVietnamese(qRaw);
@@ -3867,11 +3928,18 @@
     const allWords = typeof VOCAB_DATA !== "undefined" ? VOCAB_DATA : (typeof DataStore !== "undefined" ? DataStore.getVocab() : []);
     const matches = [];
 
+    // Nếu từ khóa chứa chữ Hán, luôn ưu tiên tìm theo Hán tự kể cả khi đang ở chế độ vi
+    const hasHanzi = /[\u4e00-\u9fa5]/.test(qRaw);
+
     for (let i = 0; i < allWords.length; i++) {
       const w = allWords[i];
       let score = 0;
 
-      if (langMode === "vi") {
+      if (hasHanzi) {
+        if (w.hanzi === qRaw) score = 100;
+        else if (w.hanzi.startsWith(qRaw)) score = 85;
+        else if (w.hanzi.includes(qRaw)) score = 70;
+      } else if (langMode === "vi") {
         const viNorm = normalizeVietnamese(w.meaning);
         if (viNorm === qNormVi) score = 100;
         else if (viNorm.startsWith(qNormVi)) score = 80;
@@ -3909,10 +3977,11 @@
 
   function searchDictSentences(query, primaryWord = null) {
     if (!query) return [];
-    const qTrim = query.trim();
+    const qTrim = cleanSearchQuery(query);
+    if (!qTrim) return [];
     const qLower = qTrim.toLowerCase();
     const qVi = normalizeVietnamese(qTrim);
-    const hanziKey = primaryWord?.hanzi || (qTrim.match(/[\u4e00-\u9fa5]+/g) || [])[0] || "";
+    const hanziKey = (qTrim.match(/[\u4e00-\u9fa5]+/g) || [])[0] || primaryWord?.hanzi || "";
 
     const list = typeof SENTENCE_DATA !== "undefined" ? SENTENCE_DATA : [];
     const results = [];
@@ -3938,20 +4007,21 @@
   }
 
   function searchDictCompounds(query, primaryWord = null) {
+    const qClean = cleanSearchQuery(query);
     const chars = [];
+    const qChars = qClean.match(/[\u4e00-\u9fa5]/g) || [];
+    for (const ch of qChars) {
+      if (!chars.includes(ch)) chars.push(ch);
+    }
     if (primaryWord?.hanzi) {
       for (const ch of primaryWord.hanzi) {
         if (/[\u4e00-\u9fa5]/.test(ch) && !chars.includes(ch)) chars.push(ch);
       }
     }
-    const qChars = query.match(/[\u4e00-\u9fa5]/g) || [];
-    for (const ch of qChars) {
-      if (!chars.includes(ch)) chars.push(ch);
-    }
 
     if (!chars.length) return [];
 
-    const excludeHanzi = primaryWord?.hanzi || query.trim();
+    const excludeHanzi = primaryWord?.hanzi || qClean;
     const results = [];
 
     for (let i = 0; i < VOCAB_DATA.length; i++) {
@@ -3994,7 +4064,7 @@
     if (!dictView) return;
 
     const d = appState.dict;
-    const query = (d.query || "").trim();
+    const query = cleanSearchQuery(d.query || "");
     const hasQuery = Boolean(query);
 
     // Lấy dữ liệu theo từ khóa nếu có
@@ -4003,8 +4073,14 @@
     const matchedSentences = hasQuery ? searchDictSentences(query, primaryWord) : [];
     const matchedCompounds = hasQuery ? searchDictCompounds(query, primaryWord) : [];
 
-    // Tách Hán tự cho subtab Hán tự
-    const characters = getCharacterBreakdown(primaryWord || query);
+    // Tách Hán tự cho subtab Hán tự (ưu tiên chữ có trong query để khi tra chữ đơn như 回, 母, 甲 hiển thị đúng)
+    let characters = getCharacterBreakdown(query);
+    if (primaryWord) {
+      const pChars = getCharacterBreakdown(primaryWord);
+      for (const pc of pChars) {
+        if (!characters.some((c) => c.char === pc.char)) characters.push(pc);
+      }
+    }
     if (!d.selectedChar && characters.length) {
       d.selectedChar = characters[0].char;
     } else if (characters.length && !characters.some((c) => c.char === d.selectedChar)) {
@@ -4260,7 +4336,35 @@
 
   // --- SUBTAB 1: TỪ VỰNG CHI TIẾT & KẾT QUẢ KHỚP ---
   function renderDictVocabTab(matchedWords, primaryWord, sentenceCount, compoundCount) {
+    const qClean = cleanSearchQuery(appState.dict.query);
     if (!primaryWord) {
+      const singleChar = qClean.length === 1 && /[\u4e00-\u9fa5]/.test(qClean) ? qClean : null;
+      if (singleChar) {
+        const sino = SINO_VIET_DICT[singleChar] || "---";
+        return `
+          <div class="dict-card-dark p-6 sm:p-8 space-y-5 animate-fade-in">
+            <div class="flex items-center justify-between pb-4 border-b border-white/10">
+              <div class="flex items-center gap-4 sm:gap-6">
+                <span class="hanzi text-5xl sm:text-6xl font-extrabold text-paper">${singleChar}</span>
+                <div>
+                  <span class="text-xs uppercase tracking-wider text-gold font-bold">Âm Hán Việt:</span>
+                  <h3 class="text-xl font-bold text-paper">${sino}</h3>
+                  <p class="text-xs text-paper/50 mt-0.5">Chữ Hán đơn (chưa có trong danh mục từ vựng cơ bản HSK 1-4)</p>
+                </div>
+              </div>
+              <button class="flash-speaker-btn w-10 h-10" data-dict-speak="${singleChar}" title="Nghe phát âm">
+                <i data-lucide="volume-2" class="w-5 h-5 text-gold"></i>
+              </button>
+            </div>
+            <div class="p-4 rounded-xl bg-white/[0.03] border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <p class="text-xs text-paper/70">Xem chi tiết số nét, bộ thủ và tập viết chữ này trên bảng Mễ Tự Cách:</p>
+              <button class="bg-gold hover:bg-gold-light text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition shrink-0" data-quick-tab="hanzi">
+                Mở tab Hán tự & Tập viết ➔
+              </button>
+            </div>
+          </div>
+        `;
+      }
       return `
         <div class="dict-card-dark p-8 sm:p-12 text-center text-paper/50">
           <i data-lucide="search-x" class="w-12 h-12 mx-auto mb-3 opacity-40 text-gold"></i>
@@ -4936,6 +5040,13 @@
         debouncedDictSearch(e.target.value);
       });
 
+      searchIn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          performDictionarySearch(searchIn.value);
+        }
+      });
+
       // Auto-focus khi mở view mà chưa có từ khóa
       if (!query) {
         setTimeout(() => searchIn.focus(), 80);
@@ -5033,10 +5144,7 @@
     document.querySelectorAll("[data-select-word]").forEach((el) => {
       el.addEventListener("click", () => {
         const word = el.dataset.selectWord;
-        d.query = word;
-        d.activeModal = null;
-        ProgressStore.addSearchHistory(word);
-        renderDict();
+        performDictionarySearch(word);
       });
     });
 
@@ -5044,9 +5152,7 @@
     document.querySelectorAll("[data-history-term], [data-hot-term]").forEach((el) => {
       el.addEventListener("click", () => {
         const term = el.dataset.historyTerm || el.dataset.hotTerm;
-        d.query = term;
-        ProgressStore.addSearchHistory(term);
-        renderDict();
+        performDictionarySearch(term);
       });
     });
 
@@ -5104,11 +5210,7 @@
     document.querySelectorAll("[data-ocr-sample]").forEach((el) => {
       el.addEventListener("click", () => {
         const val = el.dataset.ocrSample;
-        d.query = val;
-        d.activeModal = null;
-        ProgressStore.addSearchHistory(val);
-        renderDict();
-        showToast(`Đã nhận diện: "${val}"`);
+        performDictionarySearch(val);
       });
     });
 
@@ -5121,11 +5223,7 @@
       if (file) {
         showToast("Đang xử lý quét ảnh...");
         setTimeout(() => {
-          d.query = "中国";
-          d.activeModal = null;
-          ProgressStore.addSearchHistory("中国");
-          renderDict();
-          showToast('Quét thành công: "中国"');
+          performDictionarySearch("中国");
         }, 600);
       }
     });
@@ -5134,10 +5232,7 @@
     document.querySelectorAll("[data-select-radical]").forEach((el) => {
       el.addEventListener("click", () => {
         const rad = el.dataset.selectRadical;
-        d.query = rad;
-        d.activeModal = null;
-        ProgressStore.addSearchHistory(rad);
-        renderDict();
+        performDictionarySearch(rad);
       });
     });
 
@@ -5340,14 +5435,7 @@
 
   function handleSelectHandwritingChar(char) {
     if (!char) return;
-    const d = appState.dict;
-    d.query = char;
-    d.activeModal = null;
-    d.handwritingStrokes = [];
-    d.handwritingCandidates = [];
-    ProgressStore.addSearchHistory(char);
-    renderDict();
-    showToast(`Đã nhận diện & tra cứu chữ "${char}"`, "success");
+    performDictionarySearch(char);
   }
 
   // --- ENGINE VẼ NÉT TRÊN CANVAS (TOUCH & MOUSE) ---
@@ -5376,21 +5464,38 @@
         ctx.restore();
       }
 
-      // Vẽ lại các nét đã lưu
+      // Vẽ lại các nét đã lưu bằng đường cong mượt mà (Quadratic Bezier)
       ctx.save();
       ctx.strokeStyle = "#c23a2b";
+      ctx.fillStyle = "#c23a2b";
       ctx.lineWidth = 8;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
       for (const stroke of d.handwritingStrokes) {
-        if (!stroke.length) continue;
-        ctx.beginPath();
-        ctx.moveTo(stroke[0].x, stroke[0].y);
-        for (let i = 1; i < stroke.length; i++) {
-          ctx.lineTo(stroke[i].x, stroke[i].y);
+        if (!stroke || !stroke.length) continue;
+        if (stroke.length === 1) {
+          ctx.beginPath();
+          ctx.arc(stroke[0].x, stroke[0].y, ctx.lineWidth / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (stroke.length === 2) {
+          ctx.beginPath();
+          ctx.moveTo(stroke[0].x, stroke[0].y);
+          ctx.lineTo(stroke[1].x, stroke[1].y);
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(stroke[0].x, stroke[0].y);
+          for (let i = 1; i < stroke.length - 1; i++) {
+            const midX = (stroke[i].x + stroke[i + 1].x) / 2;
+            const midY = (stroke[i].y + stroke[i + 1].y) / 2;
+            ctx.quadraticCurveTo(stroke[i].x, stroke[i].y, midX, midY);
+          }
+          const last = stroke[stroke.length - 1];
+          const secondLast = stroke[stroke.length - 2];
+          ctx.quadraticCurveTo(secondLast.x, secondLast.y, last.x, last.y);
+          ctx.stroke();
         }
-        ctx.stroke();
       }
       ctx.restore();
     };
@@ -5399,13 +5504,14 @@
 
     const getPos = (e) => {
       const rect = canvas.getBoundingClientRect();
-      const clientX = e.touches && e.touches.length ? e.touches[0].clientX : (e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientX : e.clientX);
-      const clientY = e.touches && e.touches.length ? e.touches[0].clientY : (e.changedTouches && e.changedTouches.length ? e.changedTouches[0].clientY : e.clientY);
+      const touch = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]);
+      const clientX = touch ? touch.clientX : e.clientX;
+      const clientY = touch ? touch.clientY : e.clientY;
       const scaleX = canvas.width / (rect.width || 1);
       const scaleY = canvas.height / (rect.height || 1);
       return {
-        x: Math.round((clientX - rect.left) * scaleX),
-        y: Math.round((clientY - rect.top) * scaleY),
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY,
       };
     };
 
@@ -5424,6 +5530,12 @@
       if (e.cancelable) e.preventDefault();
       const pos = getPos(e);
       const now = Date.now();
+      const lastPoint = currentStroke[currentStroke.length - 1];
+      if (lastPoint) {
+        const dx = pos.x - lastPoint.x;
+        const dy = pos.y - lastPoint.y;
+        if (dx * dx + dy * dy < 2) return;
+      }
       currentStroke.push({ x: pos.x, y: pos.y, t: now });
       drawGuidelinesAndGhost();
     };
@@ -5433,6 +5545,7 @@
       if (e && e.cancelable) e.preventDefault();
       isDrawing = false;
       currentStroke = [];
+      drawGuidelinesAndGhost();
 
       if (isModal) {
         clearTimeout(recognitionDebounceTimer);
@@ -5550,13 +5663,12 @@
 
       recog.onresult = (e) => {
         const transcript = e.results?.[0]?.[0]?.transcript || "";
-        if (transcript) {
-          d.query = transcript.trim();
-          ProgressStore.addSearchHistory(d.query);
-          showToast(`Nhận diện: "${d.query}"`);
-        }
         d.isListening = false;
-        renderDict();
+        if (transcript) {
+          performDictionarySearch(transcript);
+        } else {
+          renderDict();
+        }
       };
 
       recog.onerror = (err) => {
@@ -5573,9 +5685,10 @@
 
       recog.start();
     } catch (err) {
-      console.warn("[Voice] Exception:", err);
+      console.warn("[Voice] Start error:", err);
       d.isListening = false;
       renderDict();
+      showToast("Không thể khởi động micro.", "error");
     }
   }
 
