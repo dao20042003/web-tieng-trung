@@ -2652,6 +2652,8 @@
 
     renderArcadeArena();
     attachArcadeInputListeners();
+    const floatLayer = document.getElementById("arcade-floating-container");
+    if (floatLayer) floatLayer.innerHTML = "";
 
     if (t.animationFrameId) cancelAnimationFrame(t.animationFrameId);
     t.animationFrameId = requestAnimationFrame(arcadeGameLoop);
@@ -2687,7 +2689,7 @@
     const t = appState.typing;
     const arenaEl = document.getElementById("arcade-play-arena");
     const arenaHeight = arenaEl ? arenaEl.clientHeight : 600;
-    const snowLimit = arenaHeight - 120;
+    const snowLimit = arenaHeight - (window.innerWidth < 640 ? 95 : 115);
 
     const maxActive = t.gameMode === "brush" ? 2 : 3;
     const canSpawn = t.playMode === "endless" || (t.progressCount + t.fallingWords.length < t.targetTotal);
@@ -2735,17 +2737,16 @@
       }
     }
 
-    if (t.gameMode === "brush") {
-      let lowest = null;
-      let maxY = -999;
-      for (const fw of t.fallingWords) {
-        if (fw.y > maxY) {
-          maxY = fw.y;
-          lowest = fw;
-        }
+    // Luôn xác định từ mục tiêu gần rơi xuống đất nhất cho cả 2 chế độ Thần Bút & Phi Đao
+    let lowest = null;
+    let maxY = -999;
+    for (const fw of t.fallingWords) {
+      if (fw.y > maxY) {
+        maxY = fw.y;
+        lowest = fw;
       }
-      t.targetFallingWord = lowest;
     }
+    t.targetFallingWord = lowest;
 
     for (let i = t.projectiles.length - 1; i >= 0; i--) {
       const p = t.projectiles[i];
@@ -2794,14 +2795,34 @@
   }
 
   function spawnFloatingScoreTag(xPct, yPx, text, color) {
-    const t = appState.typing;
-    t.floatingTexts.push({
-      x: xPct,
-      y: yPx,
-      text,
-      color,
-      life: 0.85,
-    });
+    const container = document.getElementById("arcade-floating-container") || document.getElementById("arcade-play-arena");
+    if (!container) return;
+
+    const tagEl = document.createElement("div");
+    tagEl.className = "arcade-floating-tag";
+    tagEl.style.left = `${Math.max(10, Math.min(90, xPct))}%`;
+    tagEl.style.top = `${Math.max(15, yPx)}px`;
+    tagEl.style.color = color;
+
+    const span = document.createElement("span");
+    span.className = "text-xs sm:text-sm font-black drop-shadow-md font-mono px-2.5 py-1 rounded-full bg-slate-900/85 border border-white/20 whitespace-nowrap";
+    span.textContent = text;
+    tagEl.appendChild(span);
+
+    container.appendChild(tagEl);
+
+    // Bắt buộc xóa bỏ hoàn toàn phần tử DOM sau 900ms hoặc khi kết thúc animation
+    let isRemoved = false;
+    const cleanup = () => {
+      if (isRemoved) return;
+      isRemoved = true;
+      if (tagEl.parentNode) {
+        tagEl.remove();
+      }
+    };
+
+    tagEl.addEventListener("animationend", cleanup, { once: true });
+    setTimeout(cleanup, 900);
   }
 
   // ============================================================
@@ -2902,100 +2923,67 @@
         <!-- LAYER CHỮ RƠI & PHI ĐAO ĐỘNG (ĐƯỢC CẬP NHẬT QUA LOOP) -->
         <div id="arcade-dynamic-layer" class="absolute inset-0 pointer-events-none z-20 overflow-hidden"></div>
 
-        <!-- ARCADE INPUT DOCK: BỘ NHẬP LIỆU BÀN PHÍM ĐIỆN THOẠI & MÁY TÍNH -->
-        <div id="arcade-input-container" class="arcade-input-dock mt-auto mb-1.5 sm:mb-3 flex flex-col items-center gap-1.5 sm:gap-2 w-full px-1 sm:px-2 z-35">
-          ${
-            isBrush
-              ? `
-              <!-- Hàng 1 Thần Bút: Chữ mục tiêu + Nút hạ chữ một chạm -->
-              <div class="glass px-3 sm:px-4 py-1.5 sm:py-2 rounded-2xl flex items-center justify-between gap-2 border-amber-400/40 bg-black/75 shadow-2xl max-w-md w-full">
-                <div class="flex items-center gap-2">
-                  <span class="text-xs text-amber-300 font-bold uppercase tracking-wider flex items-center gap-1">
-                    <i data-lucide="pen-tool" class="w-3.5 h-3.5"></i> Mục tiêu:
-                  </span>
-                  <span id="brush-target-char" class="hanzi text-xl sm:text-2xl font-black text-white px-2.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/40">
-                    ${t.targetFallingWord ? t.targetFallingWord.word.hanzi : "---"}
-                  </span>
-                </div>
-                <button id="brush-btn-strike" type="button" class="bg-amber-500 hover:bg-amber-400 text-ink font-bold px-3 sm:px-4 py-1.5 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1 shrink-0 active:scale-95">
-                  <span>Hạ chữ (Space/Chạm)</span>
-                  <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                </button>
-              </div>
+        <!-- LAYER HIỆU ỨNG ĐIỂM & NGHĨA TIẾNG VIỆT (TỰ ĐỘNG XÓA SAU 900MS) -->
+        <div id="arcade-floating-container" class="absolute inset-0 pointer-events-none z-30 overflow-hidden"></div>
 
-              <!-- Hàng 2 Thần Bút: Thanh nhập bàn phím điện thoại & máy tính -->
-              <div class="arcade-typing-bar-interactive mode-brush flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl max-w-md w-full">
-                <i data-lucide="keyboard" class="w-4 h-4 text-amber-400 shrink-0"></i>
-                <span class="text-xs text-paper/60 font-medium whitespace-nowrap hidden sm:inline">Thần Bút:</span>
-                <input
-                  id="arcade-virtual-input"
-                  type="text"
-                  inputmode="text"
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  spellcheck="false"
-                  enterkeyhint="go"
-                  placeholder="Gõ pinyin, chữ Hán hoặc phím Space..."
-                  value="${t.currentInput || ""}"
-                  class="bg-transparent border-none outline-none text-amber-300 font-bold font-mono text-sm sm:text-base flex-1 min-w-0 placeholder:text-paper/40 placeholder:font-sans placeholder:text-xs sm:placeholder:text-sm"
-                />
-                <button
-                  id="arcade-clear-input-btn"
-                  type="button"
-                  class="${t.currentInput ? "" : "hidden"} p-1 rounded-lg text-paper/40 hover:text-white transition shrink-0"
-                  title="Xóa chữ"
-                >
-                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                </button>
-              </div>
+        <!-- ARCADE INPUT DOCK: 1 THANH NGANG DUY NHẤT, MỎNG GỌN (48PX - 52PX) NẰM SÁT ĐÁY KHUNG GAME -->
+        <div id="arcade-input-container" class="arcade-input-dock mt-auto w-full px-1.5 sm:px-3 pb-1 sm:pb-2 z-35 flex justify-center">
+          <div class="arcade-typing-bar-interactive ${isBrush ? "mode-brush" : "mode-blade"} flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 rounded-xl sm:rounded-2xl w-full max-w-lg shadow-2xl">
+            
+            <!-- Bên trái: Hiển thị nhỏ gọn mục tiêu trên 1 dòng ngang (white-space: nowrap) -->
+            <div class="arcade-target-badge flex items-center gap-1 px-2 py-1 rounded-lg ${
+              isBrush ? "bg-amber-500/20 border border-amber-400/40 text-amber-300" : "bg-sky-500/20 border border-sky-400/40 text-sky-300"
+            } shrink-0 select-none whitespace-nowrap cursor-pointer" title="Mục tiêu hạ chữ">
+              <span class="text-xs">🎯</span>
+              <span id="brush-target-char" class="hanzi text-sm sm:text-base font-black text-white whitespace-nowrap leading-none tracking-wide">
+                ${t.targetFallingWord ? t.targetFallingWord.word.hanzi : "---"}
+              </span>
+            </div>
 
-              <div class="text-[10px] sm:text-xs text-paper/40 text-center font-medium">
-                💡 Nhận bàn phím điện thoại · Gõ pinyin / chữ Hán hoặc ấn Space/Enter để hạ chữ rơi
-              </div>
-              `
-              : `
-              <!-- Phi Đao: Thanh gõ pinyin nhận bàn phím điện thoại & máy tính -->
-              <div class="arcade-typing-bar-interactive mode-blade flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-2xl max-w-md w-full">
-                <i data-lucide="swords" class="w-4 h-4 text-sky-400 shrink-0"></i>
-                <span class="text-xs text-paper/60 font-medium whitespace-nowrap hidden sm:inline">Phi Đao:</span>
-                <input
-                  id="arcade-virtual-input"
-                  type="text"
-                  inputmode="text"
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  spellcheck="false"
-                  enterkeyhint="go"
-                  placeholder="Chạm đây để mở phím & gõ (vd: nihao)..."
-                  value="${t.currentInput || ""}"
-                  class="bg-transparent border-none outline-none text-sky-300 font-bold font-mono text-sm sm:text-base flex-1 min-w-0 placeholder:text-paper/40 placeholder:font-sans placeholder:text-xs sm:placeholder:text-sm"
-                />
-                <button
-                  id="arcade-clear-input-btn"
-                  type="button"
-                  class="${t.currentInput ? "" : "hidden"} p-1 rounded-lg text-paper/40 hover:text-white transition shrink-0"
-                  title="Xóa chữ"
-                >
-                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            <!-- Ở giữa: Ô input gõ Pinyin/Chữ Hán gọn gàng -->
+            <input
+              id="arcade-virtual-input"
+              type="text"
+              inputmode="text"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              enterkeyhint="go"
+              placeholder="${isBrush ? "Gõ pinyin/chữ Hán/Space..." : "Gõ pinyin (vd: nihao)..."}"
+              value="${t.currentInput || ""}"
+              class="bg-transparent border-none outline-none ${
+                isBrush ? "text-amber-300" : "text-sky-300"
+              } font-bold font-mono text-sm sm:text-base flex-1 min-w-0 placeholder:text-paper/40 placeholder:font-sans placeholder:text-xs"
+            />
+
+            <!-- Nút Xóa nhanh ký tự khi đã gõ -->
+            <button
+              id="arcade-clear-input-btn"
+              type="button"
+              class="${t.currentInput ? "" : "hidden"} p-1 rounded-lg text-paper/40 hover:text-white transition shrink-0"
+              title="Xóa chữ"
+            >
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+
+            <!-- Bên phải: Nút Phóng đao / Hạ chữ nhỏ gọn -->
+            ${
+              isBrush
+                ? `
+                <button id="brush-btn-strike" type="button" class="bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-ink font-extrabold px-2.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1 shrink-0 active:scale-95 whitespace-nowrap" title="Hạ chữ mục tiêu (Space/Enter)">
+                  <span>Hạ chữ</span>
+                  <i data-lucide="zap" class="w-3 h-3"></i>
                 </button>
-                <button
-                  id="blade-btn-shoot"
-                  type="button"
-                  class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-ink font-bold text-xs shrink-0 shadow-md transition flex items-center gap-1 active:scale-95"
-                  title="Phóng phi đao"
-                >
+                `
+                : `
+                <button id="blade-btn-shoot" type="button" class="bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 text-ink font-extrabold px-2.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1 shrink-0 active:scale-95 whitespace-nowrap" title="Phóng phi đao (Enter)">
                   <span>Phóng</span>
                   <i data-lucide="zap" class="w-3 h-3"></i>
                 </button>
-              </div>
-
-              <div class="text-[10px] sm:text-xs text-paper/40 text-center font-medium">
-                💡 Nhận bàn phím điện thoại · Gõ pinyin (không dấu), chữ Hán hoặc tiếng Việt
-              </div>
-              `
-          }
+                `
+            }
+          </div>
         </div>
 
         <!-- POPUP KHI TẠM DỪNG -->
@@ -3043,11 +3031,9 @@
       hudBar.style.width = `${(t.progressCount / t.targetTotal) * 100}%`;
     }
 
-    if (t.gameMode === "brush") {
-      const brushCharEl = document.getElementById("brush-target-char");
-      if (brushCharEl) {
-        brushCharEl.textContent = t.targetFallingWord ? t.targetFallingWord.word.hanzi : "---";
-      }
+    const brushCharEl = document.getElementById("brush-target-char");
+    if (brushCharEl) {
+      brushCharEl.textContent = t.targetFallingWord ? t.targetFallingWord.word.hanzi : "---";
     }
 
     const currentInputNoTone = normalizePinyinRaw(t.currentInput.trim());
@@ -3056,7 +3042,7 @@
     for (const fw of t.fallingWords) {
       const pinyinNoTone = normalizePinyinRaw(fw.word.pinyin);
       const isMatchedPrefix = currentInputNoTone.length > 0 && pinyinNoTone.startsWith(currentInputNoTone);
-      const isTarget = t.gameMode === "brush" && t.targetFallingWord && t.targetFallingWord.id === fw.id;
+      const isTarget = t.targetFallingWord && t.targetFallingWord.id === fw.id;
 
       wordsHtml += `
         <div class="arcade-falling-word ${isMatchedPrefix ? "is-prefix-matched" : ""} ${
@@ -3064,10 +3050,10 @@
       }" style="left: ${fw.x}%; top: ${fw.y}px;">
           ${
             t.showPinyin
-              ? `<p class="falling-pinyin text-center">${fw.word.pinyin}</p>`
+              ? `<span class="falling-pinyin">${fw.word.pinyin}</span>`
               : ""
           }
-          <p class="falling-hanzi text-center">${fw.word.hanzi}</p>
+          <span class="falling-hanzi">${fw.word.hanzi}</span>
         </div>
       `;
     }
@@ -3089,16 +3075,7 @@
       }
     }
 
-    let floatingHtml = "";
-    for (const tag of t.floatingTexts) {
-      floatingHtml += `
-        <div class="arcade-floating-tag" style="left: ${tag.x}%; top: ${tag.y}px; color: ${tag.color};">
-          <span class="text-sm sm:text-base font-extrabold drop-shadow-md font-mono">${tag.text}</span>
-        </div>
-      `;
-    }
-
-    layer.innerHTML = wordsHtml + projectilesHtml + floatingHtml;
+    layer.innerHTML = wordsHtml + projectilesHtml;
   }
 
   function initArenaControlsEvents() {
@@ -3135,6 +3112,8 @@
         cancelAnimationFrame(t.animationFrameId);
         t.animationFrameId = null;
       }
+      const floatLayer = document.getElementById("arcade-floating-container");
+      if (floatLayer) floatLayer.innerHTML = "";
       t.screen = "lobby";
       renderTyping();
     };
@@ -3142,16 +3121,29 @@
     document.getElementById("btn-exit-lobby")?.addEventListener("click", exitToLobby);
     document.getElementById("pause-btn-quit")?.addEventListener("click", exitToLobby);
 
-    // Xử lý nút Hạ chữ trong Thần Bút
-    document.getElementById("brush-btn-strike")?.addEventListener("click", (e) => {
-      e.stopPropagation();
+    // Xử lý nút Hạ chữ trong Thần Bút hoặc chạm vào badge mục tiêu
+    const handleStrikeTarget = () => {
       if (t.targetFallingWord) {
-        launchArcadeProjectile(t.targetFallingWord, "brush");
+        launchArcadeProjectile(t.targetFallingWord, t.gameMode === "brush" ? "brush" : "blade");
         t.currentInput = "";
         if (inputEl) inputEl.value = "";
         updateTypingInputDisplay();
       }
       focusArcadeInput();
+    };
+
+    document.getElementById("brush-btn-strike")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      handleStrikeTarget();
+    });
+
+    document.getElementById("brush-target-char")?.closest(".arcade-target-badge")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (t.gameMode === "brush") {
+        handleStrikeTarget();
+      } else {
+        focusArcadeInput();
+      }
     });
 
     // Xử lý nút Phóng đao trong Phi Đao
@@ -3478,7 +3470,7 @@
     const arenaEl = document.getElementById("arcade-play-arena");
     const arenaH = arenaEl ? arenaEl.clientHeight : 600;
     const startX = window.innerWidth < 640 ? 80 : 84;
-    const startY = Math.max(200, arenaH - 95);
+    const startY = Math.max(160, arenaH - (window.innerWidth < 640 ? 115 : 125));
 
     t.projectiles.push({
       startX,
@@ -3506,6 +3498,8 @@
       cancelAnimationFrame(t.animationFrameId);
       t.animationFrameId = null;
     }
+    const floatLayer = document.getElementById("arcade-floating-container");
+    if (floatLayer) floatLayer.innerHTML = "";
     t.screen = resultType;
 
     if (resultType === "victory") {
